@@ -14,6 +14,7 @@ import type {
 } from "@/lib/categories/types"
 import { readTransactions, writeTransactions } from "@/lib/transactions/storage"
 import type { Transaction } from "@/lib/transactions/types"
+import { matchesAutomationRule } from "@/lib/categories/rule-matcher"
 
 type CategoryListParams = {
   search?: string
@@ -55,40 +56,6 @@ function computeCategoryStats(category: Category, transactions: Transaction[]): 
   }
 }
 
-function matchesPattern(rule: AutomationRule, description: string): boolean {
-  const normalizedDescription = description.toLowerCase()
-  const patterns = rule.pattern
-    .split("|")
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-
-  if (patterns.length === 0) {
-    return false
-  }
-
-  switch (rule.type) {
-    case "contains":
-      return patterns.some((pattern) => normalizedDescription.includes(pattern.toLowerCase()))
-    case "starts_with":
-      return patterns.some((pattern) => normalizedDescription.startsWith(pattern.toLowerCase()))
-    case "ends_with":
-      return patterns.some((pattern) => normalizedDescription.endsWith(pattern.toLowerCase()))
-    case "exact":
-      return patterns.some((pattern) => normalizedDescription === pattern.toLowerCase())
-    case "regex":
-      return patterns.some((pattern) => {
-        try {
-          const regex = new RegExp(pattern, "i")
-          return regex.test(description)
-        } catch {
-          return false
-        }
-      })
-    default:
-      return false
-  }
-}
-
 function computeRuleStats(
   rule: AutomationRule,
   categoriesById: Map<string, Category>,
@@ -102,7 +69,7 @@ function computeRuleStats(
     if (!transaction.description) {
       return count
     }
-    if (matchesPattern(rule, transaction.description)) {
+    if (matchesAutomationRule(rule, transaction.description)) {
       return count + 1
     }
     return count
