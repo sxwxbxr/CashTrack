@@ -1,8 +1,6 @@
 "use client"
 
-import type React from "react"
-
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -15,28 +13,57 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
+interface CategorySummary {
+  id: string
+  name: string
+  monthlyBudget: number
+  spent: number
+}
+
 interface EditBudgetDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  category: any
+  category?: CategorySummary | null
+  onSubmit: (budget: number) => Promise<void>
 }
 
-export function EditBudgetDialog({ open, onOpenChange, category }: EditBudgetDialogProps) {
+export function EditBudgetDialog({ open, onOpenChange, category, onSubmit }: EditBudgetDialogProps) {
   const [budget, setBudget] = useState("")
+  const [error, setError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
-    if (category) {
-      setBudget(category.budget.toString())
+    if (open && category) {
+      setBudget(category.monthlyBudget.toString())
+      setError(null)
+      setIsSubmitting(false)
     }
-  }, [category])
+  }, [open, category])
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    console.log("Updated budget:", { categoryId: category?.id, budget: Number.parseFloat(budget) })
-    onOpenChange(false)
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError(null)
+    setIsSubmitting(true)
+
+    try {
+      const parsed = Number.parseFloat(budget)
+      if (Number.isNaN(parsed) || parsed < 0) {
+        throw new Error("Budget must be a positive number")
+      }
+      await onSubmit(parsed)
+      onOpenChange(false)
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Failed to update budget")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
-  if (!category) return null
+  if (!category) {
+    return null
+  }
+
+  const utilization = budget && Number.parseFloat(budget) > 0 ? (category.spent / Number.parseFloat(budget)) * 100 : null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -52,26 +79,29 @@ export function EditBudgetDialog({ open, onOpenChange, category }: EditBudgetDia
               id="budget"
               type="number"
               step="0.01"
+              min="0"
               value={budget}
-              onChange={(e) => setBudget(e.target.value)}
+              onChange={(event) => setBudget(event.target.value)}
               required
             />
           </div>
 
-          <div className="text-sm text-muted-foreground">
-            <p>Current spending: ${category.spent}</p>
-            <p>
-              {budget && Number.parseFloat(budget) > 0 && (
-                <>New budget utilization: {((category.spent / Number.parseFloat(budget)) * 100).toFixed(1)}%</>
-              )}
-            </p>
+          <div className="text-sm text-muted-foreground space-y-1">
+            <p>Current spending: ${category.spent.toFixed(2)}</p>
+            {utilization !== null && Number.isFinite(utilization) && (
+              <p>New budget utilization: {Math.min(utilization, 999).toFixed(1)}%</p>
+            )}
           </div>
 
+          {error && <p className="text-sm text-red-500">{error}</p>}
+
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button type="submit">Update Budget</Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Saving..." : "Update Budget"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

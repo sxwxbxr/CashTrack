@@ -1,0 +1,62 @@
+[
+  {
+    "id": "rule_groceries",
+    "name": "Grocery Stores",
+    "categoryId": "cat_food",
+    "type": "contains",
+    "pattern": "grocery|supermarket|walmart|target",
+    "priority": 1,
+    "isActive": true,
+    "description": "Matches common grocery merchants",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "rule_gas",
+    "name": "Gas Stations",
+    "categoryId": "cat_transport",
+    "type": "contains",
+    "pattern": "shell|exxon|bp|chevron|gas",
+    "priority": 2,
+    "isActive": true,
+    "description": "Categorize fuel purchases",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "rule_streaming",
+    "name": "Streaming Services",
+    "categoryId": "cat_entertainment",
+    "type": "contains",
+    "pattern": "netflix|spotify|hulu|disney|amazon prime",
+    "priority": 1,
+    "isActive": true,
+    "description": "Automatically tag streaming subscriptions",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "rule_coffee",
+    "name": "Coffee Shops",
+    "categoryId": "cat_food",
+    "type": "contains",
+    "pattern": "starbucks|coffee|cafe",
+    "priority": 3,
+    "isActive": true,
+    "description": "Daily caffeine fix",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "rule_utilities",
+    "name": "Utility Bills",
+    "categoryId": "cat_bills",
+    "type": "contains",
+    "pattern": "electric|water|gas bill|internet|phone bill",
+    "priority": 1,
+    "isActive": true,
+    "description": "Utility service providers",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  }
+]
