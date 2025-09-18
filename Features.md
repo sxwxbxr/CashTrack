@@ -1,0 +1,15 @@
+# Backend Feature Backlog
+
+## Frontend functionality waiting on backend work
+- **Dashboard metrics, alerts, and charts** – The landing page already renders budget warnings, balance/income/expense KPIs, category breakouts, and recent transaction/budget summaries using hardcoded numbers, so the backend needs endpoints that supply live aggregates and budget status data for these widgets and chart components.
+- **Transaction lifecycle management** – The transactions view supports filtering, sorting, edit/delete actions, and opens dialogs for adding entries or importing CSV files, all backed by mock arrays. A backend must persist transactions, honor filters/sorting, and process CSV uploads for the import wizard.
+- **Category budgets and automation rules** – The UI lets users browse category spend, edit budgets, and maintain automation rules, but everything is placeholder data. Backend services must store categories, budgets, spending totals, and rule definitions while computing progress and remaining amounts.
+- **Reporting and analytics exports** – Reports show selectable periods, summary KPIs, multiple analytical charts, and insight callouts using static datasets, with buttons to export CSV/PDF. Backend analytics endpoints and export jobs are needed to feed these visuals with real data and generate files on demand.
+- **Settings, data sources, and backups** – The settings area already models regional preferences, connected accounts, CSV templates, notification toggles, privacy switches, and backup actions but merely logs to the console. Backend APIs must persist these preferences, integrate with account aggregators, manage templates, and handle backup/restore workflows.
+
+## Backend features ready to start now
+- **Transactions API with CSV import pipeline** – Implement database-backed CRUD endpoints (list with filtering/sorting) and a file-processing route that parses uploads into transactions, aligning with the table actions, add-transaction form, and multi-step import dialog present in the UI.
+- **Category, budget, and rule services** – Create endpoints to create/update/delete categories, persist budgets, compute spend vs. budget totals, and manage automation rules so the categories view and related dialogs can operate on live data.
+- **Reporting/analytics aggregation layer** – Build reporting queries that summarize transactions into the KPI cards, charts, and insight callouts, plus handlers for CSV/PDF exports triggered from the reports header.
+- **Dashboard summary service** – Once transactional and analytic data are available, expose a consolidated dashboard endpoint delivering budget alerts, KPI totals, chart datasets, and recent transaction snippets to replace the current hardcoded values.
+- **Settings and integration APIs** – Provide persistence for regional preferences, notification flags, privacy toggles, CSV templates, backup metadata, and connected account states so the settings UI can read/write real configuration and trigger sync/backup actions.
