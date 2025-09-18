@@ -10,6 +10,8 @@ import {
   UpdateTransactionInput,
 } from "@/lib/transactions/types"
 import { readTransactions, writeTransactions } from "@/lib/transactions/storage"
+import { readAutomationRules, readCategories } from "@/lib/categories/storage"
+import { createAutomationRuleEvaluator } from "@/lib/categories/rule-matcher"
 
 const DEFAULT_PAGE_SIZE = 50
 
@@ -160,11 +162,23 @@ export async function createTransaction(input: CreateTransactionInput): Promise<
   const status: TransactionStatus = VALID_STATUSES.includes(input.status) ? input.status : "completed"
   const amount = applyAmount(input.amount, type)
 
+  const fallbackCategory = input.category || "Uncategorized"
+
+  const [transactions, rules, categories] = await Promise.all([
+    readTransactions(),
+    readAutomationRules(),
+    readCategories(),
+  ])
+
+  const evaluateRules = createAutomationRuleEvaluator(rules, categories)
+  const matchedCategory = evaluateRules(input.description)
+  const categoryName = matchedCategory?.categoryName ?? fallbackCategory
+
   const transaction: Transaction = {
     id: `txn_${randomUUID()}`,
     date: normalizedDate,
     description: input.description,
-    category: input.category,
+    category: categoryName,
     amount,
     account: input.account,
     status,
@@ -174,7 +188,6 @@ export async function createTransaction(input: CreateTransactionInput): Promise<
     updatedAt: now,
   }
 
-  const transactions = await readTransactions()
   transactions.push(transaction)
   const sorted = sortTransactions(transactions, "date", "desc")
   await writeTransactions(sorted)
@@ -183,7 +196,12 @@ export async function createTransaction(input: CreateTransactionInput): Promise<
 }
 
 export async function updateTransaction(id: string, updates: UpdateTransactionInput): Promise<Transaction> {
-  const transactions = await readTransactions()
+  const [transactions, rules, categories] = await Promise.all([
+    readTransactions(),
+    readAutomationRules(),
+    readCategories(),
+  ])
+  const evaluateRules = createAutomationRuleEvaluator(rules, categories)
   const index = transactions.findIndex((transaction) => transaction.id === id)
 
   if (index === -1) {
@@ -211,11 +229,20 @@ export async function updateTransaction(id: string, updates: UpdateTransactionIn
     updatedAt: new Date().toISOString(),
   }
 
-  transactions[index] = updated
+  const matchedCategory = evaluateRules(updated.description)
+  const fallbackCategory = updated.category || "Uncategorized"
+  const nextCategory = matchedCategory?.categoryName ?? fallbackCategory
+
+  const finalTransaction: Transaction = {
+    ...updated,
+    category: nextCategory,
+  }
+
+  transactions[index] = finalTransaction
   const sorted = sortTransactions(transactions, "date", "desc")
   await writeTransactions(sorted)
 
-  return updated
+  return finalTransaction
 }
 
 export async function deleteTransaction(id: string) {
@@ -401,7 +428,12 @@ export async function importTransactions(transactionsToImport: ParsedCsvTransact
     return { imported: 0, skipped: 0 }
   }
 
-  const existingTransactions = await readTransactions()
+  const [existingTransactions, rules, categories] = await Promise.all([
+    readTransactions(),
+    readAutomationRules(),
+    readCategories(),
+  ])
+  const evaluateRules = createAutomationRuleEvaluator(rules, categories)
   const existingKeys = new Set(
     existingTransactions.map((transaction) =>
       [transaction.date, transaction.description.toLowerCase(), transaction.amount, transaction.account.toLowerCase()].join("|"),
@@ -422,11 +454,14 @@ export async function importTransactions(transactionsToImport: ParsedCsvTransact
     existingKeys.add(key)
 
     const now = new Date().toISOString()
+    const fallbackCategory = entry.category || "Uncategorized"
+    const matchedCategory = evaluateRules(entry.description)
+    const categoryName = matchedCategory?.categoryName ?? fallbackCategory
     newTransactions.push({
       id: `txn_${randomUUID()}`,
       date: entry.date,
       description: entry.description,
-      category: entry.category || "Uncategorized",
+      category: categoryName,
       amount,
       account,
       status,
