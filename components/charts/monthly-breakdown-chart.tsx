@@ -2,21 +2,39 @@
 
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts"
 
-const data = [
-  { name: "Bills & Utilities", value: 4350, color: "hsl(var(--chart-1))" },
-  { name: "Food & Dining", value: 2700, color: "hsl(var(--chart-2))" },
-  { name: "Shopping", value: 2100, color: "hsl(var(--chart-3))" },
-  { name: "Transportation", value: 1680, color: "hsl(var(--chart-4))" },
-  { name: "Entertainment", value: 720, color: "hsl(var(--chart-5))" },
-  { name: "Healthcare", value: 450, color: "hsl(var(--destructive))" },
+const COLOR_PALETTE = [
+  "hsl(var(--chart-1))",
+  "hsl(var(--chart-2))",
+  "hsl(var(--chart-3))",
+  "hsl(var(--chart-4))",
+  "hsl(var(--chart-5))",
+  "hsl(var(--destructive))",
 ]
 
-export function MonthlyBreakdownChart() {
+const DEFAULT_DATA = [
+  { name: "Bills & Utilities", value: 4350, color: COLOR_PALETTE[0] },
+  { name: "Food & Dining", value: 2700, color: COLOR_PALETTE[1] },
+  { name: "Shopping", value: 2100, color: COLOR_PALETTE[2] },
+  { name: "Transportation", value: 1680, color: COLOR_PALETTE[3] },
+  { name: "Entertainment", value: 720, color: COLOR_PALETTE[4] },
+  { name: "Healthcare", value: 450, color: COLOR_PALETTE[5] },
+]
+
+interface MonthlyBreakdownChartProps {
+  data?: { name: string; value: number; color?: string }[]
+}
+
+export function MonthlyBreakdownChart({ data }: MonthlyBreakdownChartProps) {
+  const chartData = (data?.length ? data : DEFAULT_DATA).map((entry, index) => ({
+    ...entry,
+    color: entry.color ?? COLOR_PALETTE[index % COLOR_PALETTE.length],
+  }))
+
   return (
     <ResponsiveContainer width="100%" height={400}>
       <PieChart>
         <Pie
-          data={data}
+          data={chartData}
           cx="50%"
           cy="50%"
           labelLine={false}
@@ -25,7 +43,7 @@ export function MonthlyBreakdownChart() {
           fill="#8884d8"
           dataKey="value"
         >
-          {data.map((entry, index) => (
+          {chartData.map((entry, index) => (
             <Cell key={`cell-${index}`} fill={entry.color} />
           ))}
         </Pie>
