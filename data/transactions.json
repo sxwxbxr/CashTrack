@@ -1,0 +1,100 @@
+[
+  {
+    "id": "txn_0001",
+    "date": "2024-01-15",
+    "description": "Grocery Store - Weekly Shopping",
+    "category": "Food & Dining",
+    "amount": -85.5,
+    "account": "Checking",
+    "status": "completed",
+    "type": "expense",
+    "notes": "Weekly groceries",
+    "createdAt": "2024-01-15T09:15:00.000Z",
+    "updatedAt": "2024-01-15T09:15:00.000Z"
+  },
+  {
+    "id": "txn_0002",
+    "date": "2024-01-14",
+    "description": "Salary Deposit",
+    "category": "Income",
+    "amount": 2100,
+    "account": "Checking",
+    "status": "completed",
+    "type": "income",
+    "notes": "Monthly salary",
+    "createdAt": "2024-01-14T08:00:00.000Z",
+    "updatedAt": "2024-01-14T08:00:00.000Z"
+  },
+  {
+    "id": "txn_0003",
+    "date": "2024-01-13",
+    "description": "Gas Station - Shell",
+    "category": "Transportation",
+    "amount": -45.2,
+    "account": "Credit Card",
+    "status": "completed",
+    "type": "expense",
+    "createdAt": "2024-01-13T13:30:00.000Z",
+    "updatedAt": "2024-01-13T13:30:00.000Z"
+  },
+  {
+    "id": "txn_0004",
+    "date": "2024-01-12",
+    "description": "Coffee Shop - Morning Coffee",
+    "category": "Food & Dining",
+    "amount": -12.5,
+    "account": "Checking",
+    "status": "completed",
+    "type": "expense",
+    "createdAt": "2024-01-12T07:45:00.000Z",
+    "updatedAt": "2024-01-12T07:45:00.000Z"
+  },
+  {
+    "id": "txn_0005",
+    "date": "2024-01-11",
+    "description": "Netflix Subscription",
+    "category": "Entertainment",
+    "amount": -15.99,
+    "account": "Credit Card",
+    "status": "completed",
+    "type": "expense",
+    "createdAt": "2024-01-11T05:00:00.000Z",
+    "updatedAt": "2024-01-11T05:00:00.000Z"
+  },
+  {
+    "id": "txn_0006",
+    "date": "2024-01-10",
+    "description": "Amazon Purchase",
+    "category": "Shopping",
+    "amount": -89.99,
+    "account": "Credit Card",
+    "status": "pending",
+    "type": "expense",
+    "createdAt": "2024-01-10T16:20:00.000Z",
+    "updatedAt": "2024-01-10T16:20:00.000Z"
+  },
+  {
+    "id": "txn_0007",
+    "date": "2024-01-09",
+    "description": "Freelance Payment",
+    "category": "Income",
+    "amount": 450,
+    "account": "Checking",
+    "status": "completed",
+    "type": "income",
+    "createdAt": "2024-01-09T18:10:00.000Z",
+    "updatedAt": "2024-01-09T18:10:00.000Z"
+  },
+  {
+    "id": "txn_0008",
+    "date": "2024-01-08",
+    "description": "Electric Bill",
+    "category": "Bills & Utilities",
+    "amount": -125.3,
+    "account": "Checking",
+    "status": "completed",
+    "type": "expense",
+    "createdAt": "2024-01-08T04:30:00.000Z",
+    "updatedAt": "2024-01-08T04:30:00.000Z"
+  }
+]

@@ -224,7 +224,7 @@ export default function ReportsPage() {
               <div className="p-4 bg-yellow-50 dark:bg-yellow-950 rounded-lg border border-yellow-200 dark:border-yellow-800">
                 <h4 className="font-medium text-yellow-800 dark:text-yellow-200">Budget Alert</h4>
                 <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
-                  You're spending 20% more on entertainment this month. Consider reviewing your entertainment budget.
+                  You&apos;re spending 20% more on entertainment this month. Consider reviewing your entertainment budget.
                 </p>
               </div>
               <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">

@@ -24,7 +24,7 @@ export default function DashboardPage() {
           <AlertTriangle className="h-4 w-4 text-orange-600" />
           <AlertTitle className="text-orange-800 dark:text-orange-200">Budget Warning</AlertTitle>
           <AlertDescription className="text-orange-700 dark:text-orange-300">
-            You've spent 85% of your monthly food budget. Consider reducing dining expenses.
+            You&apos;ve spent 85% of your monthly food budget. Consider reducing dining expenses.
           </AlertDescription>
         </Alert>
 

@@ -125,7 +125,7 @@ export function AddRuleDialog({ open, onOpenChange }: AddRuleDialogProps) {
               required
             />
             <p className="text-xs text-muted-foreground">
-              Use | to separate multiple patterns (e.g., "starbucks|coffee|cafe")
+              Use | to separate multiple patterns (e.g., &quot;starbucks|coffee|cafe&quot;)
             </p>
           </div>
 
