@@ -1,148 +1,615 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { toast } from "sonner"
 import { AppLayout } from "@/components/app-layout"
+import { AddCategoryDialog, type CategoryFormValues } from "@/components/add-category-dialog"
+import { AddRuleDialog, type RuleFormValues } from "@/components/add-rule-dialog"
+import { EditBudgetDialog } from "@/components/edit-budget-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Plus, Edit, Trash2, Target, Zap, Search } from "lucide-react"
-import { AddCategoryDialog } from "@/components/add-category-dialog"
-import { AddRuleDialog } from "@/components/add-rule-dialog"
-import { EditBudgetDialog } from "@/components/edit-budget-dialog"
+import { Edit, Loader2, Plus, Search, Target, Trash2, Zap } from "lucide-react"
 
-// Mock data
-const mockCategories = [
-  {
-    id: "1",
-    name: "Food & Dining",
-    icon: "🍽️",
-    color: "bg-blue-500",
-    budget: 600,
-    spent: 450,
-    transactionCount: 23,
-  },
-  {
-    id: "2",
-    name: "Transportation",
-    icon: "🚗",
-    color: "bg-green-500",
-    budget: 300,
-    spent: 280,
-    transactionCount: 12,
-  },
-  {
-    id: "3",
-    name: "Entertainment",
-    icon: "🎬",
-    color: "bg-purple-500",
-    budget: 200,
-    spent: 120,
-    transactionCount: 8,
-  },
-  {
-    id: "4",
-    name: "Shopping",
-    icon: "🛍️",
-    color: "bg-yellow-500",
-    budget: 400,
-    spent: 350,
-    transactionCount: 15,
-  },
-  {
-    id: "5",
-    name: "Bills & Utilities",
-    icon: "⚡",
-    color: "bg-red-500",
-    budget: 800,
-    spent: 725,
-    transactionCount: 6,
-  },
-  {
-    id: "6",
-    name: "Healthcare",
-    icon: "🏥",
-    color: "bg-pink-500",
-    budget: 150,
-    spent: 85,
-    transactionCount: 3,
-  },
-]
+interface Category {
+  id: string
+  name: string
+  icon: string
+  color: string
+  monthlyBudget: number
+  spent: number
+  transactionCount: number
+}
 
-const mockRules = [
-  {
-    id: "1",
-    name: "Grocery Stores",
-    category: "Food & Dining",
-    type: "contains",
-    pattern: "grocery|supermarket|walmart|target",
-    priority: 1,
-    isActive: true,
-    matchCount: 45,
-  },
-  {
-    id: "2",
-    name: "Gas Stations",
-    category: "Transportation",
-    type: "contains",
-    pattern: "shell|exxon|bp|chevron|gas",
-    priority: 2,
-    isActive: true,
-    matchCount: 23,
-  },
-  {
-    id: "3",
-    name: "Streaming Services",
-    category: "Entertainment",
-    type: "contains",
-    pattern: "netflix|spotify|hulu|disney|amazon prime",
-    priority: 1,
-    isActive: true,
-    matchCount: 12,
-  },
-  {
-    id: "4",
-    name: "Coffee Shops",
-    category: "Food & Dining",
-    type: "contains",
-    pattern: "starbucks|coffee|cafe",
-    priority: 3,
-    isActive: true,
-    matchCount: 18,
-  },
-  {
-    id: "5",
-    name: "Utility Bills",
-    category: "Bills & Utilities",
-    type: "contains",
-    pattern: "electric|water|gas bill|internet|phone bill",
-    priority: 1,
-    isActive: true,
-    matchCount: 8,
-  },
-]
+type RuleMatchType = "contains" | "starts_with" | "ends_with" | "exact" | "regex"
+
+interface Rule {
+  id: string
+  name: string
+  categoryId: string
+  categoryName: string
+  type: RuleMatchType
+  pattern: string
+  priority: number
+  isActive: boolean
+  description?: string
+  matchCount: number
+}
+
+const matchTypeLabels: Record<RuleMatchType, string> = {
+  contains: "Contains",
+  starts_with: "Starts With",
+  ends_with: "Ends With",
+  exact: "Exact",
+  regex: "Regex",
+}
+
+function formatCurrency(value: number) {
+  return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+function sortCategories(list: Category[]) {
+  return [...list].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function sortRules(list: Rule[]) {
+  return [...list].sort((a, b) => {
+    if (a.priority !== b.priority) {
+      return a.priority - b.priority
+    }
+    return a.name.localeCompare(b.name)
+  })
+}
 
 export default function CategoriesPage() {
   const [searchTerm, setSearchTerm] = useState("")
-  const [showAddCategoryDialog, setShowAddCategoryDialog] = useState(false)
-  const [showAddRuleDialog, setShowAddRuleDialog] = useState(false)
-  const [showEditBudgetDialog, setShowEditBudgetDialog] = useState(false)
-  const [selectedCategory, setSelectedCategory] = useState<any>(null)
+  const [categories, setCategories] = useState<Category[]>([])
+  const [rules, setRules] = useState<Rule[]>([])
+  const [categoriesLoading, setCategoriesLoading] = useState(false)
+  const [categoriesError, setCategoriesError] = useState<string | null>(null)
+  const [rulesLoading, setRulesLoading] = useState(false)
+  const [rulesError, setRulesError] = useState<string | null>(null)
 
-  const filteredCategories = mockCategories.filter((category) =>
-    category.name.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
+  const [categoryDialogMode, setCategoryDialogMode] = useState<"create" | "edit">("create")
+  const [categoryDialogSelection, setCategoryDialogSelection] = useState<Category | null>(null)
 
-  const filteredRules = mockRules.filter(
-    (rule) =>
-      rule.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      rule.category.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  const [ruleDialogOpen, setRuleDialogOpen] = useState(false)
+  const [ruleDialogMode, setRuleDialogMode] = useState<"create" | "edit">("create")
+  const [ruleDialogSelection, setRuleDialogSelection] = useState<Rule | null>(null)
 
-  const handleEditBudget = (category: any) => {
-    setSelectedCategory(category)
-    setShowEditBudgetDialog(true)
+  const [budgetDialogOpen, setBudgetDialogOpen] = useState(false)
+  const [budgetCategory, setBudgetCategory] = useState<Category | null>(null)
+
+  const fetchCategories = useCallback(async () => {
+    setCategoriesLoading(true)
+    setCategoriesError(null)
+    try {
+      const response = await fetch("/api/categories", { cache: "no-store" })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({} as { error?: unknown }))
+        const message = typeof body.error === "string" ? body.error : "Failed to load categories"
+        throw new Error(message)
+      }
+      const data = (await response.json()) as { categories: Category[] }
+      setCategories(sortCategories(data.categories))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to load categories"
+      setCategoriesError(message)
+      toast.error("Unable to load categories", { description: message })
+    } finally {
+      setCategoriesLoading(false)
+    }
+  }, [])
+
+  const fetchRules = useCallback(async () => {
+    setRulesLoading(true)
+    setRulesError(null)
+    try {
+      const response = await fetch("/api/categories/rules", { cache: "no-store" })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({} as { error?: unknown }))
+        const message = typeof body.error === "string" ? body.error : "Failed to load rules"
+        throw new Error(message)
+      }
+      const data = (await response.json()) as { rules: Rule[] }
+      setRules(sortRules(data.rules))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to load rules"
+      setRulesError(message)
+      toast.error("Unable to load automation rules", { description: message })
+    } finally {
+      setRulesLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchCategories()
+    fetchRules()
+  }, [fetchCategories, fetchRules])
+
+  useEffect(() => {
+    if (categoryDialogSelection) {
+      const updated = categories.find((category) => category.id === categoryDialogSelection.id)
+      if (updated && updated !== categoryDialogSelection) {
+        setCategoryDialogSelection(updated)
+      }
+    }
+  }, [categories, categoryDialogSelection])
+
+  useEffect(() => {
+    if (budgetCategory) {
+      const updated = categories.find((category) => category.id === budgetCategory.id)
+      if (updated && updated !== budgetCategory) {
+        setBudgetCategory(updated)
+      }
+    }
+  }, [categories, budgetCategory])
+
+  useEffect(() => {
+    if (ruleDialogSelection) {
+      const updated = rules.find((rule) => rule.id === ruleDialogSelection.id)
+      if (updated && updated !== ruleDialogSelection) {
+        setRuleDialogSelection(updated)
+      }
+    }
+  }, [rules, ruleDialogSelection])
+
+  const normalizedSearch = searchTerm.trim().toLowerCase()
+
+  const filteredCategories = useMemo(() => {
+    if (!normalizedSearch) {
+      return categories
+    }
+    return categories.filter((category) => category.name.toLowerCase().includes(normalizedSearch))
+  }, [categories, normalizedSearch])
+
+  const filteredRules = useMemo(() => {
+    if (!normalizedSearch) {
+      return rules
+    }
+    return rules.filter((rule) => {
+      const search = normalizedSearch
+      return (
+        rule.name.toLowerCase().includes(search) ||
+        rule.categoryName.toLowerCase().includes(search) ||
+        rule.pattern.toLowerCase().includes(search)
+      )
+    })
+  }, [rules, normalizedSearch])
+
+  const categoryInitialValues = useMemo(() => {
+    if (!categoryDialogSelection) {
+      return undefined
+    }
+    return {
+      name: categoryDialogSelection.name,
+      icon: categoryDialogSelection.icon,
+      color: categoryDialogSelection.color,
+      monthlyBudget: categoryDialogSelection.monthlyBudget.toString(),
+    }
+  }, [categoryDialogSelection])
+
+  const ruleInitialValues = useMemo(() => {
+    if (!ruleDialogSelection) {
+      return undefined
+    }
+    return {
+      name: ruleDialogSelection.name,
+      categoryId: ruleDialogSelection.categoryId,
+      type: ruleDialogSelection.type,
+      pattern: ruleDialogSelection.pattern,
+      priority: ruleDialogSelection.priority.toString(),
+      isActive: ruleDialogSelection.isActive,
+      description: ruleDialogSelection.description ?? "",
+    }
+  }, [ruleDialogSelection])
+
+  const openCreateCategoryDialog = () => {
+    setCategoryDialogMode("create")
+    setCategoryDialogSelection(null)
+    setCategoryDialogOpen(true)
+  }
+
+  const openEditCategoryDialog = (category: Category) => {
+    setCategoryDialogMode("edit")
+    setCategoryDialogSelection(category)
+    setCategoryDialogOpen(true)
+  }
+
+  const openBudgetDialog = (category: Category) => {
+    setBudgetCategory(category)
+    setBudgetDialogOpen(true)
+  }
+
+  const openCreateRuleDialog = () => {
+    setRuleDialogMode("create")
+    setRuleDialogSelection(null)
+    if (categories.length === 0) {
+      toast.info("Add a category before creating rules")
+      return
+    }
+    setRuleDialogOpen(true)
+  }
+
+  const openEditRuleDialog = (rule: Rule) => {
+    setRuleDialogMode("edit")
+    setRuleDialogSelection(rule)
+    setRuleDialogOpen(true)
+  }
+
+  const handleCategoryDialogOpenChange = (open: boolean) => {
+    setCategoryDialogOpen(open)
+    if (!open) {
+      setCategoryDialogSelection(null)
+    }
+  }
+
+  const handleRuleDialogOpenChange = (open: boolean) => {
+    setRuleDialogOpen(open)
+    if (!open) {
+      setRuleDialogSelection(null)
+    }
+  }
+
+  const handleBudgetDialogOpenChange = (open: boolean) => {
+    setBudgetDialogOpen(open)
+    if (!open) {
+      setBudgetCategory(null)
+    }
+  }
+
+  const handleCategorySubmit = async (values: CategoryFormValues) => {
+    const monthlyBudget = Number.parseFloat(values.monthlyBudget)
+    if (Number.isNaN(monthlyBudget) || monthlyBudget < 0) {
+      throw new Error("Budget must be a positive number")
+    }
+
+    const payload = {
+      name: values.name.trim(),
+      icon: values.icon,
+      color: values.color,
+      monthlyBudget,
+    }
+
+    if (categoryDialogMode === "create") {
+      const response = await fetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({} as { error?: unknown }))
+        const message = typeof body.error === "string" ? body.error : "Unable to create category"
+        throw new Error(message)
+      }
+
+      const data = (await response.json()) as { category: Category }
+      setCategories((previous) => sortCategories([...previous, data.category]))
+      toast.success("Category added")
+    } else if (categoryDialogSelection) {
+      const response = await fetch(`/api/categories/${categoryDialogSelection.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({} as { error?: unknown }))
+        const message = typeof body.error === "string" ? body.error : "Unable to update category"
+        throw new Error(message)
+      }
+
+      const data = (await response.json()) as { category: Category }
+      setCategories((previous) =>
+        sortCategories(previous.map((category) => (category.id === data.category.id ? data.category : category))),
+      )
+      setBudgetCategory((previous) => (previous?.id === data.category.id ? data.category : previous))
+      toast.success("Category updated")
+      await fetchRules()
+    }
+  }
+
+  const handleDeleteCategory = async (category: Category) => {
+    const confirmed = window.confirm(
+      `Delete category "${category.name}"? Transactions will be marked as Uncategorized and related rules removed.`,
+    )
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/categories/${category.id}`, { method: "DELETE" })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({} as { error?: unknown }))
+        const message = typeof body.error === "string" ? body.error : "Unable to delete category"
+        throw new Error(message)
+      }
+
+      setCategories((previous) => sortCategories(previous.filter((entry) => entry.id !== category.id)))
+      setBudgetCategory((previous) => (previous?.id === category.id ? null : previous))
+      toast.success("Category deleted")
+      await fetchRules()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to delete category"
+      toast.error("Delete failed", { description: message })
+    }
+  }
+
+  const handleBudgetSubmit = async (newBudget: number) => {
+    if (!budgetCategory) {
+      throw new Error("No category selected")
+    }
+
+    const response = await fetch(`/api/categories/${budgetCategory.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ monthlyBudget: newBudget }),
+    })
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({} as { error?: unknown }))
+      const message = typeof body.error === "string" ? body.error : "Unable to update budget"
+      throw new Error(message)
+    }
+
+    const data = (await response.json()) as { category: Category }
+    setCategories((previous) =>
+      sortCategories(previous.map((category) => (category.id === data.category.id ? data.category : category))),
+    )
+    setBudgetCategory(data.category)
+    setCategoryDialogSelection((previous) => (previous?.id === data.category.id ? data.category : previous))
+    toast.success("Budget updated")
+  }
+
+  const handleRuleSubmit = async (values: RuleFormValues) => {
+    const payload = {
+      name: values.name.trim(),
+      categoryId: values.categoryId,
+      type: values.type,
+      pattern: values.pattern.trim(),
+      priority: Number.parseInt(values.priority, 10),
+      isActive: values.isActive,
+      description: values.description.trim() ? values.description.trim() : undefined,
+    }
+
+    if (!payload.categoryId) {
+      throw new Error("Please select a category")
+    }
+
+    if (Number.isNaN(payload.priority) || payload.priority < 1) {
+      throw new Error("Priority must be a positive number")
+    }
+
+    if (ruleDialogMode === "create") {
+      const response = await fetch("/api/categories/rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({} as { error?: unknown }))
+        const message = typeof body.error === "string" ? body.error : "Unable to create rule"
+        throw new Error(message)
+      }
+
+      const data = (await response.json()) as { rule: Rule }
+      setRules((previous) => sortRules([...previous, data.rule]))
+      toast.success("Rule created")
+    } else if (ruleDialogSelection) {
+      const response = await fetch(`/api/categories/rules/${ruleDialogSelection.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({} as { error?: unknown }))
+        const message = typeof body.error === "string" ? body.error : "Unable to update rule"
+        throw new Error(message)
+      }
+
+      const data = (await response.json()) as { rule: Rule }
+      setRules((previous) => sortRules(previous.map((rule) => (rule.id === data.rule.id ? data.rule : rule))))
+      toast.success("Rule updated")
+    }
+  }
+
+  const handleDeleteRule = async (rule: Rule) => {
+    const confirmed = window.confirm(`Delete rule "${rule.name}"?`)
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/categories/rules/${rule.id}`, { method: "DELETE" })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({} as { error?: unknown }))
+        const message = typeof body.error === "string" ? body.error : "Unable to delete rule"
+        throw new Error(message)
+      }
+
+      setRules((previous) => previous.filter((entry) => entry.id !== rule.id))
+      toast.success("Rule deleted")
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to delete rule"
+      toast.error("Delete failed", { description: message })
+    }
+  }
+
+  const renderCategories = () => {
+    if (categoriesLoading) {
+      return (
+        <div className="flex h-32 items-center justify-center rounded-lg border">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading categories...
+          </div>
+        </div>
+      )
+    }
+
+    if (categoriesError) {
+      return (
+        <div className="flex h-32 items-center justify-center rounded-lg border">
+          <p className="text-sm text-red-500">{categoriesError}</p>
+        </div>
+      )
+    }
+
+    if (filteredCategories.length === 0) {
+      return (
+        <div className="flex h-32 items-center justify-center rounded-lg border">
+          <p className="text-sm text-muted-foreground">No categories found. Try adjusting your search.</p>
+        </div>
+      )
+    }
+
+    return (
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {filteredCategories.map((category) => {
+          const remaining = category.monthlyBudget - category.spent
+          const utilization =
+            category.monthlyBudget > 0
+              ? category.spent / category.monthlyBudget
+              : category.spent > 0
+                ? 1
+                : 0
+          const progress =
+            category.monthlyBudget > 0
+              ? Math.min((category.spent / category.monthlyBudget) * 100, 100)
+              : category.spent > 0
+                ? 100
+                : 0
+          const spentColor =
+            utilization >= 1 ? "text-red-600" : utilization >= 0.8 ? "text-yellow-600" : "text-green-600"
+          const remainingColor = remaining < 0 ? "text-red-600" : "text-green-600"
+          return (
+            <Card key={category.id} className="relative">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${category.color} text-lg text-white`}>
+                      {category.icon}
+                    </div>
+                    <div>
+                      <CardTitle className="text-lg">{category.name}</CardTitle>
+                      <CardDescription>{category.transactionCount} transactions</CardDescription>
+                    </div>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => openBudgetDialog(category)}>
+                      <Target className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => openEditCategoryDialog(category)}>
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleDeleteCategory(category)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Budget</span>
+                    <span className="font-medium">{formatCurrency(category.monthlyBudget)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Spent</span>
+                    <span className={`font-medium ${spentColor}`}>{formatCurrency(category.spent)}</span>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span>Progress</span>
+                      <span>{Math.min(progress, 999).toFixed(0)}%</span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-secondary">
+                      <div
+                        className={`h-2 rounded-full ${utilization >= 1 ? "bg-red-500" : category.color}`}
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Remaining</span>
+                    <span className={`font-medium ${remainingColor}`}>
+                      {remaining >= 0 ? formatCurrency(remaining) : `-${formatCurrency(Math.abs(remaining))}`}
+                    </span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )
+        })}
+      </div>
+    )
+  }
+
+  const renderRules = () => {
+    if (rulesLoading) {
+      return (
+        <div className="flex h-32 items-center justify-center rounded-lg border">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading automation rules...
+          </div>
+        </div>
+      )
+    }
+
+    if (rulesError) {
+      return (
+        <div className="flex h-32 items-center justify-center rounded-lg border">
+          <p className="text-sm text-red-500">{rulesError}</p>
+        </div>
+      )
+    }
+
+    if (filteredRules.length === 0) {
+      return (
+        <div className="flex h-32 items-center justify-center rounded-lg border">
+          <p className="text-sm text-muted-foreground">No automation rules found. Try adjusting your search.</p>
+        </div>
+      )
+    }
+
+    return (
+      <div className="space-y-4">
+        {filteredRules.map((rule) => (
+          <div key={rule.id} className="flex items-start justify-between gap-4 rounded-lg border p-4">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className="font-medium">{rule.name}</h4>
+                <Badge variant={rule.isActive ? "default" : "secondary"}>{rule.isActive ? "Active" : "Inactive"}</Badge>
+                <Badge variant="outline">Priority {rule.priority}</Badge>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Category: <span className="font-medium">{rule.categoryName}</span>
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Pattern ({matchTypeLabels[rule.type]}): <code className="rounded bg-muted px-1 text-xs">{rule.pattern}</code>
+              </p>
+              {rule.description && <p className="text-xs text-muted-foreground">{rule.description}</p>}
+              <p className="text-xs text-muted-foreground">Matched {rule.matchCount} transactions</p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={() => openEditRuleDialog(rule)}>
+                <Edit className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => handleDeleteRule(rule)}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    )
   }
 
   return (
@@ -151,11 +618,11 @@ export default function CategoriesPage() {
       description="Manage spending categories and automation rules"
       action={
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowAddRuleDialog(true)}>
+          <Button variant="outline" size="sm" onClick={openCreateRuleDialog}>
             <Zap className="mr-2 h-4 w-4" />
             Add Rule
           </Button>
-          <Button size="sm" onClick={() => setShowAddCategoryDialog(true)}>
+          <Button size="sm" onClick={openCreateCategoryDialog}>
             <Plus className="mr-2 h-4 w-4" />
             Add Category
           </Button>
@@ -170,7 +637,6 @@ export default function CategoriesPage() {
           </TabsList>
 
           <TabsContent value="categories" className="space-y-4">
-            {/* Search */}
             <Card>
               <CardContent className="pt-6">
                 <div className="relative">
@@ -178,88 +644,17 @@ export default function CategoriesPage() {
                   <Input
                     placeholder="Search categories..."
                     value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(event) => setSearchTerm(event.target.value)}
                     className="pl-8"
                   />
                 </div>
               </CardContent>
             </Card>
 
-            {/* Categories Grid */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {filteredCategories.map((category) => (
-                <Card key={category.id} className="relative">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`w-10 h-10 rounded-lg ${category.color} flex items-center justify-center text-white text-lg`}
-                        >
-                          {category.icon}
-                        </div>
-                        <div>
-                          <CardTitle className="text-lg">{category.name}</CardTitle>
-                          <CardDescription>{category.transactionCount} transactions</CardDescription>
-                        </div>
-                      </div>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => handleEditBudget(category)}>
-                          <Target className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Budget</span>
-                        <span className="font-medium">${category.budget}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Spent</span>
-                        <span
-                          className={`font-medium ${category.spent > category.budget * 0.8 ? "text-red-600" : "text-green-600"}`}
-                        >
-                          ${category.spent}
-                        </span>
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-xs">
-                          <span>Progress</span>
-                          <span>{((category.spent / category.budget) * 100).toFixed(0)}%</span>
-                        </div>
-                        <div className="w-full bg-secondary rounded-full h-2">
-                          <div
-                            className={`h-2 rounded-full ${
-                              category.spent / category.budget > 0.8 ? "bg-red-500" : category.color
-                            }`}
-                            style={{ width: `${Math.min((category.spent / category.budget) * 100, 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Remaining</span>
-                        <span
-                          className={`font-medium ${category.budget - category.spent < 0 ? "text-red-600" : "text-green-600"}`}
-                        >
-                          ${Math.max(category.budget - category.spent, 0)}
-                        </span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            {renderCategories()}
           </TabsContent>
 
           <TabsContent value="rules" className="space-y-4">
-            {/* Search */}
             <Card>
               <CardContent className="pt-6">
                 <div className="relative">
@@ -267,14 +662,13 @@ export default function CategoriesPage() {
                   <Input
                     placeholder="Search rules..."
                     value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(event) => setSearchTerm(event.target.value)}
                     className="pl-8"
                   />
                 </div>
               </CardContent>
             </Card>
 
-            {/* Rules List */}
             <Card>
               <CardHeader>
                 <CardTitle>Automation Rules</CardTitle>
@@ -282,51 +676,43 @@ export default function CategoriesPage() {
                   Rules automatically categorize transactions based on patterns in descriptions
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {filteredRules.map((rule) => (
-                    <div key={rule.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-medium">{rule.name}</h4>
-                          <Badge variant={rule.isActive ? "default" : "secondary"}>
-                            {rule.isActive ? "Active" : "Inactive"}
-                          </Badge>
-                          <Badge variant="outline">Priority {rule.priority}</Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          Category: <span className="font-medium">{rule.category}</span>
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          Pattern: <code className="bg-muted px-1 rounded text-xs">{rule.pattern}</code>
-                        </p>
-                        <p className="text-xs text-muted-foreground">Matched {rule.matchCount} transactions</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button variant="ghost" size="sm">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
+              <CardContent>{renderRules()}</CardContent>
             </Card>
           </TabsContent>
         </Tabs>
       </div>
 
-      {/* Dialogs */}
-      <AddCategoryDialog open={showAddCategoryDialog} onOpenChange={setShowAddCategoryDialog} />
-      <AddRuleDialog open={showAddRuleDialog} onOpenChange={setShowAddRuleDialog} />
+      <AddCategoryDialog
+        open={categoryDialogOpen}
+        onOpenChange={handleCategoryDialogOpenChange}
+        mode={categoryDialogMode}
+        onSubmit={handleCategorySubmit}
+        initialValues={categoryInitialValues}
+      />
+      <AddRuleDialog
+        open={ruleDialogOpen}
+        onOpenChange={handleRuleDialogOpenChange}
+        mode={ruleDialogMode}
+        onSubmit={handleRuleSubmit}
+        categories={categories.map((category) => ({ id: category.id, name: category.name }))}
+        initialValues={ruleInitialValues}
+      />
       <EditBudgetDialog
-        open={showEditBudgetDialog}
-        onOpenChange={setShowEditBudgetDialog}
-        category={selectedCategory}
+        open={budgetDialogOpen}
+        onOpenChange={handleBudgetDialogOpenChange}
+        category={
+          budgetCategory
+            ? {
+                id: budgetCategory.id,
+                name: budgetCategory.name,
+                monthlyBudget: budgetCategory.monthlyBudget,
+                spent: budgetCategory.spent,
+              }
+            : null
+        }
+        onSubmit={handleBudgetSubmit}
       />
     </AppLayout>
   )
 }
+

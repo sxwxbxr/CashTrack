@@ -1,0 +1,56 @@
+[
+  {
+    "id": "cat_food",
+    "name": "Food & Dining",
+    "icon": "🍽️",
+    "color": "bg-blue-500",
+    "monthlyBudget": 600,
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "cat_transport",
+    "name": "Transportation",
+    "icon": "🚗",
+    "color": "bg-green-500",
+    "monthlyBudget": 300,
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "cat_entertainment",
+    "name": "Entertainment",
+    "icon": "🎬",
+    "color": "bg-purple-500",
+    "monthlyBudget": 200,
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "cat_shopping",
+    "name": "Shopping",
+    "icon": "🛍️",
+    "color": "bg-yellow-500",
+    "monthlyBudget": 400,
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "cat_bills",
+    "name": "Bills & Utilities",
+    "icon": "⚡",
+    "color": "bg-red-500",
+    "monthlyBudget": 800,
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "cat_health",
+    "name": "Healthcare",
+    "icon": "🏥",
+    "color": "bg-pink-500",
+    "monthlyBudget": 150,
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  }
+]

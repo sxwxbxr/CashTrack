@@ -1,8 +1,6 @@
 "use client"
 
-import type React from "react"
-
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -16,9 +14,19 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
+export interface CategoryFormValues {
+  name: string
+  icon: string
+  color: string
+  monthlyBudget: string
+}
+
 interface AddCategoryDialogProps {
   open: boolean
+  mode: "create" | "edit"
   onOpenChange: (open: boolean) => void
+  onSubmit: (values: CategoryFormValues) => Promise<void>
+  initialValues?: CategoryFormValues
 }
 
 const colorOptions = [
@@ -34,50 +42,86 @@ const colorOptions = [
 
 const iconOptions = ["🍽️", "🚗", "🎬", "🛍️", "⚡", "🏥", "🎓", "🏠", "💼", "🎯", "📱", "✈️"]
 
-export function AddCategoryDialog({ open, onOpenChange }: AddCategoryDialogProps) {
-  const [formData, setFormData] = useState({
-    name: "",
-    icon: "🍽️",
-    color: "bg-blue-500",
-    budget: "",
-  })
+const createDefaultValues = (): CategoryFormValues => ({
+  name: "",
+  icon: iconOptions[0],
+  color: colorOptions[0].value,
+  monthlyBudget: "",
+})
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    console.log("Category data:", formData)
-    onOpenChange(false)
-    setFormData({
-      name: "",
-      icon: "🍽️",
-      color: "bg-blue-500",
-      budget: "",
-    })
+export function AddCategoryDialog({ open, mode, onOpenChange, onSubmit, initialValues }: AddCategoryDialogProps) {
+  const [formData, setFormData] = useState<CategoryFormValues>(createDefaultValues)
+  const [error, setError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      setError(null)
+      setIsSubmitting(false)
+      if (initialValues) {
+        setFormData(initialValues)
+      } else {
+        setFormData(createDefaultValues())
+      }
+    }
+  }, [open, initialValues])
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError(null)
+    setIsSubmitting(true)
+
+    try {
+      if (!formData.name.trim()) {
+        throw new Error("Category name is required")
+      }
+      if (!formData.monthlyBudget) {
+        throw new Error("Monthly budget is required")
+      }
+
+      await onSubmit(formData)
+      if (mode === "create") {
+        setFormData(createDefaultValues())
+      }
+      onOpenChange(false)
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Failed to save category")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Add Category</DialogTitle>
-          <DialogDescription>Create a new spending category with budget</DialogDescription>
+          <DialogTitle>{mode === "create" ? "Add Category" : "Edit Category"}</DialogTitle>
+          <DialogDescription>
+            {mode === "create"
+              ? "Create a new spending category with budget"
+              : "Update your category details"}
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="name">Category Name</Label>
+            <Label htmlFor="category-name">Category Name</Label>
             <Input
-              id="name"
+              id="category-name"
               placeholder="e.g., Food & Dining"
               value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              onChange={(event) => setFormData((previous) => ({ ...previous, name: event.target.value }))}
               required
             />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="icon">Icon</Label>
-              <Select value={formData.icon} onValueChange={(value) => setFormData({ ...formData, icon: value })}>
-                <SelectTrigger>
+              <Label htmlFor="category-icon">Icon</Label>
+              <Select
+                value={formData.icon}
+                onValueChange={(value) => setFormData((previous) => ({ ...previous, icon: value }))}
+              >
+                <SelectTrigger id="category-icon">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -90,16 +134,19 @@ export function AddCategoryDialog({ open, onOpenChange }: AddCategoryDialogProps
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="color">Color</Label>
-              <Select value={formData.color} onValueChange={(value) => setFormData({ ...formData, color: value })}>
-                <SelectTrigger>
+              <Label htmlFor="category-color">Color</Label>
+              <Select
+                value={formData.color}
+                onValueChange={(value) => setFormData((previous) => ({ ...previous, color: value }))}
+              >
+                <SelectTrigger id="category-color">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {colorOptions.map((color) => (
                     <SelectItem key={color.value} value={color.value}>
                       <div className="flex items-center gap-2">
-                        <div className={`w-4 h-4 rounded ${color.value}`} />
+                        <div className={`h-4 w-4 rounded ${color.value}`} />
                         {color.name}
                       </div>
                     </SelectItem>
@@ -110,23 +157,28 @@ export function AddCategoryDialog({ open, onOpenChange }: AddCategoryDialogProps
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="budget">Monthly Budget</Label>
+            <Label htmlFor="category-budget">Monthly Budget</Label>
             <Input
-              id="budget"
+              id="category-budget"
               type="number"
               step="0.01"
+              min="0"
               placeholder="0.00"
-              value={formData.budget}
-              onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
+              value={formData.monthlyBudget}
+              onChange={(event) => setFormData((previous) => ({ ...previous, monthlyBudget: event.target.value }))}
               required
             />
           </div>
 
+          {error && <p className="text-sm text-red-500">{error}</p>}
+
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button type="submit">Add Category</Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Saving..." : mode === "create" ? "Add Category" : "Save Changes"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
