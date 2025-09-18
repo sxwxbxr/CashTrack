@@ -46,8 +46,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
     }
 
-    const rule = await createAutomationRule(parsed.data as CreateRulePayload)
-    return NextResponse.json({ rule }, { status: 201 })
+    const { rule, reprocessedCount } = await createAutomationRule(parsed.data as CreateRulePayload)
+    return NextResponse.json({ rule, reprocessedCount }, { status: 201 })
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 })
   }

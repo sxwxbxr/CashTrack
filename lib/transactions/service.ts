@@ -63,6 +63,53 @@ function sortTransactions(transactions: Transaction[], sortField: "date" | "amou
   return sorted
 }
 
+export async function reapplyAutomationRules(): Promise<number> {
+  const [transactions, rules, categories] = await Promise.all([
+    readTransactions(),
+    readAutomationRules(),
+    readCategories(),
+  ])
+
+  if (transactions.length === 0) {
+    return 0
+  }
+
+  const hasActiveRules = rules.some((rule) => rule.isActive)
+  if (!hasActiveRules) {
+    return 0
+  }
+
+  const evaluateRules = createAutomationRuleEvaluator(rules, categories)
+
+  let updatedCount = 0
+  const timestamp = new Date().toISOString()
+
+  const nextTransactions = transactions.map((transaction) => {
+    const match = evaluateRules(transaction.description)
+    if (!match) {
+      return transaction
+    }
+
+    if (transaction.category.toLowerCase() === match.categoryName.toLowerCase()) {
+      return transaction
+    }
+
+    updatedCount += 1
+    return {
+      ...transaction,
+      category: match.categoryName,
+      updatedAt: timestamp,
+    }
+  })
+
+  if (updatedCount > 0) {
+    const sorted = sortTransactions(nextTransactions, "date", "desc")
+    await writeTransactions(sorted)
+  }
+
+  return updatedCount
+}
+
 export async function listTransactions(params: TransactionListParams): Promise<TransactionListResult> {
   const {
     search,

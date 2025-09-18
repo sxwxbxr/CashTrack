@@ -15,6 +15,7 @@ import type {
 import { readTransactions, writeTransactions } from "@/lib/transactions/storage"
 import type { Transaction } from "@/lib/transactions/types"
 import { matchesAutomationRule } from "@/lib/categories/rule-matcher"
+import { reapplyAutomationRules } from "@/lib/transactions/service"
 
 type CategoryListParams = {
   search?: string
@@ -22,6 +23,11 @@ type CategoryListParams = {
 
 type RuleListParams = {
   search?: string
+}
+
+type AutomationRuleMutationResult = {
+  rule: AutomationRuleWithStats
+  reprocessedCount: number
 }
 
 const RULE_TYPES: RuleMatchType[] = ["contains", "starts_with", "ends_with", "exact", "regex"]
@@ -266,7 +272,7 @@ export async function listAutomationRules(params: RuleListParams = {}): Promise<
 
 export async function createAutomationRule(
   input: CreateAutomationRuleInput,
-): Promise<AutomationRuleWithStats> {
+): Promise<AutomationRuleMutationResult> {
   const [rules, categories, transactions] = await Promise.all([
     readAutomationRules(),
     readCategories(),
@@ -308,13 +314,17 @@ export async function createAutomationRule(
   const nextRules = [...rules, rule]
   await writeAutomationRules(nextRules)
 
-  return computeRuleStats(rule, new Map(categories.map((item) => [item.id, item])), transactions)
+  const reprocessedCount = await reapplyAutomationRules()
+
+  const ruleWithStats = computeRuleStats(rule, new Map(categories.map((item) => [item.id, item])), transactions)
+
+  return { rule: ruleWithStats, reprocessedCount }
 }
 
 export async function updateAutomationRule(
   id: string,
   updates: UpdateAutomationRuleInput,
-): Promise<AutomationRuleWithStats> {
+): Promise<AutomationRuleMutationResult> {
   const [rules, categories, transactions] = await Promise.all([
     readAutomationRules(),
     readCategories(),
@@ -374,7 +384,11 @@ export async function updateAutomationRule(
   nextRules[index] = updatedRule
   await writeAutomationRules(nextRules)
 
-  return computeRuleStats(updatedRule, new Map(categories.map((item) => [item.id, item])), transactions)
+  const reprocessedCount = await reapplyAutomationRules()
+
+  const ruleWithStats = computeRuleStats(updatedRule, new Map(categories.map((item) => [item.id, item])), transactions)
+
+  return { rule: ruleWithStats, reprocessedCount }
 }
 
 export async function deleteAutomationRule(id: string) {
