@@ -63,6 +63,16 @@ function sortRules(list: Rule[]) {
   })
 }
 
+function formatReprocessedMessage(count: number) {
+  if (count === 0) {
+    return "No existing transactions were recategorized."
+  }
+  if (count === 1) {
+    return "1 transaction was recategorized."
+  }
+  return `${count} transactions were recategorized.`
+}
+
 export default function CategoriesPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [categories, setCategories] = useState<Category[]>([])
@@ -397,9 +407,12 @@ export default function CategoriesPage() {
         throw new Error(message)
       }
 
-      const data = (await response.json()) as { rule: Rule }
+      const data = (await response.json()) as { rule: Rule; reprocessedCount: number }
       setRules((previous) => sortRules([...previous, data.rule]))
-      toast.success("Rule created")
+      if (data.reprocessedCount > 0) {
+        void fetchCategories()
+      }
+      toast.success("Rule created", { description: formatReprocessedMessage(data.reprocessedCount) })
     } else if (ruleDialogSelection) {
       const response = await fetch(`/api/categories/rules/${ruleDialogSelection.id}`, {
         method: "PUT",
@@ -413,9 +426,12 @@ export default function CategoriesPage() {
         throw new Error(message)
       }
 
-      const data = (await response.json()) as { rule: Rule }
+      const data = (await response.json()) as { rule: Rule; reprocessedCount: number }
       setRules((previous) => sortRules(previous.map((rule) => (rule.id === data.rule.id ? data.rule : rule))))
-      toast.success("Rule updated")
+      if (data.reprocessedCount > 0) {
+        void fetchCategories()
+      }
+      toast.success("Rule updated", { description: formatReprocessedMessage(data.reprocessedCount) })
     }
   }
 

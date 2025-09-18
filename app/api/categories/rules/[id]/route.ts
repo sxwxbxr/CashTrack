@@ -21,8 +21,8 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
     }
 
-    const rule = await updateAutomationRule(params.id, parsed.data)
-    return NextResponse.json({ rule })
+    const { rule, reprocessedCount } = await updateAutomationRule(params.id, parsed.data)
+    return NextResponse.json({ rule, reprocessedCount })
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 })
   }
