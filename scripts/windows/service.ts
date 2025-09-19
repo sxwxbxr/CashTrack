@@ -1,9 +1,18 @@
 import fs from "fs"
 import path from "path"
-import { Service } from "node-windows"
 
 function resolveProgramData() {
   return process.env.PROGRAMDATA || path.join(process.env.SYSTEMDRIVE || "C:", "ProgramData")
+}
+
+async function resolveServiceConstructor() {
+  if (process.platform !== "win32") {
+    console.error("The CashTrack Windows service helpers can only run on Windows.")
+    process.exit(1)
+  }
+
+  const nodeWindows = await import("node-windows")
+  return nodeWindows.Service
 }
 
 function resolveAction(): "install" | "uninstall" {
@@ -23,6 +32,7 @@ async function main() {
   fs.mkdirSync(dataDirectory, { recursive: true })
 
   const serviceScript = path.join(process.cwd(), "scripts", "windows", "service-runner.cjs")
+  const Service = await resolveServiceConstructor()
   const svc = new Service({
     name: "CashTrack Local Server",
     description: "Runs the CashTrack Next.js server for LAN syncing",
