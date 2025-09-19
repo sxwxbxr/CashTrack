@@ -1,0 +1,160 @@
+{
+  "general": {
+    "currency": "USD",
+    "dateFormat": "MM/DD/YYYY",
+    "theme": "system",
+    "fiscalYearStartMonth": "January",
+    "startOfWeek": "Sunday",
+    "language": "en-US",
+    "autoCategorizeTransactions": true,
+    "showRoundedTotals": false
+  },
+  "notifications": {
+    "budgetAlerts": true,
+    "weeklyReports": true,
+    "monthlyReports": true,
+    "transactionReminders": false,
+    "securityAlerts": true,
+    "productUpdates": false
+  },
+  "privacy": {
+    "dataEncryption": true,
+    "autoBackup": true,
+    "shareAnalytics": false,
+    "rememberDevices": true,
+    "requireMfa": true
+  },
+  "dataSources": {
+    "connectedAccounts": [
+      {
+        "id": "acct_1",
+        "name": "Chase Checking",
+        "institution": "Chase Bank",
+        "type": "Checking",
+        "status": "connected",
+        "lastSyncAt": "2024-01-15T08:30:00.000Z",
+        "autoSync": true,
+        "balance": 2350.75,
+        "currency": "USD",
+        "createdAt": "2023-11-02T14:25:00.000Z",
+        "updatedAt": "2024-01-15T08:30:00.000Z"
+      },
+      {
+        "id": "acct_2",
+        "name": "Chase Sapphire",
+        "institution": "Chase Bank",
+        "type": "Credit Card",
+        "status": "connected",
+        "lastSyncAt": "2024-01-15T07:55:00.000Z",
+        "autoSync": true,
+        "balance": -1245.33,
+        "currency": "USD",
+        "createdAt": "2023-10-18T10:12:00.000Z",
+        "updatedAt": "2024-01-15T07:55:00.000Z"
+      },
+      {
+        "id": "acct_3",
+        "name": "Emergency Fund",
+        "institution": "Ally Bank",
+        "type": "Savings",
+        "status": "disconnected",
+        "lastSyncAt": "2024-01-10T18:10:00.000Z",
+        "autoSync": false,
+        "balance": 5400,
+        "currency": "USD",
+        "createdAt": "2023-07-01T09:00:00.000Z",
+        "updatedAt": "2024-01-10T18:10:00.000Z"
+      }
+    ],
+    "csvTemplates": [
+      {
+        "id": "tmpl_1",
+        "name": "Chase Bank Export",
+        "description": "Standard checking account export with balance column.",
+        "columns": [
+          "Date",
+          "Description",
+          "Amount",
+          "Balance"
+        ],
+        "delimiter": ",",
+        "hasHeaders": true,
+        "dateColumn": "Date",
+        "amountColumn": "Amount",
+        "descriptionColumn": "Description",
+        "active": true,
+        "createdAt": "2023-09-22T13:45:00.000Z",
+        "updatedAt": "2023-12-15T16:30:00.000Z"
+      },
+      {
+        "id": "tmpl_2",
+        "name": "Bank of America Credit",
+        "description": "Credit card export with positive charges.",
+        "columns": [
+          "Posted Date",
+          "Payee",
+          "Amount",
+          "Type"
+        ],
+        "delimiter": ",",
+        "hasHeaders": true,
+        "dateColumn": "Posted Date",
+        "amountColumn": "Amount",
+        "descriptionColumn": "Payee",
+        "active": true,
+        "createdAt": "2023-08-11T11:05:00.000Z",
+        "updatedAt": "2023-11-05T09:15:00.000Z"
+      },
+      {
+        "id": "tmpl_3",
+        "name": "Wells Fargo Savings",
+        "description": "Savings export with debit/credit columns.",
+        "columns": [
+          "Date",
+          "Description",
+          "Debit",
+          "Credit"
+        ],
+        "delimiter": ",",
+        "hasHeaders": true,
+        "dateColumn": "Date",
+        "amountColumn": "Debit",
+        "descriptionColumn": "Description",
+        "active": false,
+        "createdAt": "2023-06-02T08:20:00.000Z",
+        "updatedAt": "2023-10-01T12:00:00.000Z"
+      }
+    ]
+  },
+  "backups": {
+    "history": [
+      {
+        "id": "bkp_1",
+        "createdAt": "2024-01-15T03:00:00.000Z",
+        "size": 2.4,
+        "type": "automatic",
+        "notes": "Weekly scheduled backup"
+      },
+      {
+        "id": "bkp_2",
+        "createdAt": "2024-01-08T03:00:00.000Z",
+        "size": 2.3,
+        "type": "automatic",
+        "notes": "Weekly scheduled backup"
+      },
+      {
+        "id": "bkp_3",
+        "createdAt": "2024-01-01T17:30:00.000Z",
+        "size": 2.1,
+        "type": "manual",
+        "notes": "Manual backup before import"
+      }
+    ],
+    "autoBackupFrequency": "weekly",
+    "retentionDays": 90,
+    "lastBackupAt": "2024-01-15T03:00:00.000Z"
+  },
+  "metadata": {
+    "updatedAt": "2024-01-15T12:00:00.000Z"
+  }
+}
