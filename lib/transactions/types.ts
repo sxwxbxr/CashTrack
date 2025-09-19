@@ -6,19 +6,21 @@ export interface Transaction {
   id: string
   date: string
   description: string
-  category: string
+  categoryId: string | null
+  categoryName: string
   amount: number
   account: string
   status: TransactionStatus
   type: TransactionType
-  notes?: string
+  notes: string | null
   createdAt: string
   updatedAt: string
 }
 
 export interface TransactionListParams {
   search?: string
-  category?: string
+  categoryId?: string
+  categoryName?: string
   status?: string
   account?: string
   type?: TransactionType
@@ -45,34 +47,37 @@ export interface TransactionListResult {
 export interface CreateTransactionInput {
   date: string
   description: string
-  category: string
+  categoryId?: string | null
+  categoryName: string
   amount: number
   account: string
   status: TransactionStatus
   type: TransactionType
-  notes?: string
+  notes?: string | null
 }
 
 export interface UpdateTransactionInput {
   date?: string
   description?: string
-  category?: string
+  categoryId?: string | null
+  categoryName?: string
   amount?: number
   account?: string
   status?: TransactionStatus
   type?: TransactionType
-  notes?: string
+  notes?: string | null
 }
 
 export interface ParsedCsvTransaction {
   date: string
   description: string
   amount: number
-  category?: string
+  categoryId?: string | null
+  categoryName?: string
   account?: string
   status?: TransactionStatus
   type?: TransactionType
-  notes?: string
+  notes?: string | null
 }
 
 export interface CsvParseResult {

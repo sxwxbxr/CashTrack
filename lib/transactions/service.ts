@@ -1,5 +1,24 @@
 import { randomUUID } from "crypto"
+import type Database from "better-sqlite3"
+
+import { initDatabase, withTransaction } from "@/lib/db"
+import { createAutomationRuleEvaluator } from "@/lib/categories/rule-matcher"
+import { listAutomationRules } from "@/lib/categories/rule-repository"
+import { getCategoryById, getCategoryByName, listCategories } from "@/lib/categories/repository"
 import {
+  bulkInsertTransactions,
+  calculateTransactionTotals,
+  countTransactions,
+  CreateTransactionRecord,
+  deleteTransaction as deleteTransactionRecord,
+  getTransactionById as getTransactionRecordById,
+  listTransactions as listTransactionRecords,
+  TransactionFilters,
+  TransactionQueryOptions,
+  updateTransaction as updateTransactionRecord,
+  insertTransaction as insertTransactionRecord,
+} from "@/lib/transactions/repository"
+import type {
   CreateTransactionInput,
   ParsedCsvTransaction,
   Transaction,
@@ -9,14 +28,18 @@ import {
   TransactionType,
   UpdateTransactionInput,
 } from "@/lib/transactions/types"
-import { readTransactions, writeTransactions } from "@/lib/transactions/storage"
-import { readAutomationRules, readCategories } from "@/lib/categories/storage"
-import { createAutomationRuleEvaluator } from "@/lib/categories/rule-matcher"
+
+void initDatabase()
 
 const DEFAULT_PAGE_SIZE = 50
-
 const VALID_STATUSES: TransactionStatus[] = ["pending", "completed", "cleared"]
 const VALID_TYPES: TransactionType[] = ["income", "expense"]
+
+const ORDERABLE_FIELDS: Record<string, TransactionQueryOptions["orderBy"]> = {
+  date: "date",
+  amount: "amount",
+  description: "description",
+}
 
 type CsvMapping = {
   date: string
@@ -41,265 +64,258 @@ function applyAmount(amount: number, type: TransactionType): number {
   return type === "expense" ? -Math.abs(amount) : Math.abs(amount)
 }
 
-function sortTransactions(transactions: Transaction[], sortField: "date" | "amount" | "description", sortDirection: "asc" | "desc") {
-  const sorted = [...transactions]
-  sorted.sort((a, b) => {
-    let aValue: string | number = a[sortField]
-    let bValue: string | number = b[sortField]
+function resolveStatus(status?: string): TransactionStatus {
+  if (status && VALID_STATUSES.includes(status as TransactionStatus)) {
+    return status as TransactionStatus
+  }
+  return "completed"
+}
 
-    if (sortField === "date") {
-      aValue = new Date(a.date).getTime()
-      bValue = new Date(b.date).getTime()
-    }
+function resolveType(type?: string): TransactionType {
+  if (type && VALID_TYPES.includes(type as TransactionType)) {
+    return type as TransactionType
+  }
+  return "expense"
+}
 
-    if (aValue < bValue) {
-      return sortDirection === "asc" ? -1 : 1
+async function resolveCategoryReference(
+  categoryId: string | null | undefined,
+  categoryName: string | undefined,
+  db?: Database,
+): Promise<{ categoryId: string | null; categoryName: string }> {
+  let resolvedId = categoryId ?? null
+  let resolvedName = categoryName?.trim() ?? "Uncategorized"
+
+  if (resolvedId) {
+    const category = await getCategoryById(resolvedId, db)
+    if (category) {
+      resolvedName = category.name
+    } else {
+      resolvedId = null
     }
-    if (aValue > bValue) {
-      return sortDirection === "asc" ? 1 : -1
+  }
+
+  if (!resolvedId && resolvedName && resolvedName !== "Uncategorized") {
+    const category = await getCategoryByName(resolvedName, db)
+    if (category) {
+      resolvedId = category.id
+      resolvedName = category.name
     }
-    return 0
-  })
-  return sorted
+  }
+
+  return { categoryId: resolvedId, categoryName: resolvedName || "Uncategorized" }
+}
+
+async function getAutomationEvaluator(db?: Database) {
+  const [categories, rules] = await Promise.all([listCategories({}, db), listAutomationRules({}, db)])
+  return createAutomationRuleEvaluator(rules, categories)
 }
 
 export async function reapplyAutomationRules(): Promise<number> {
-  const [transactions, rules, categories] = await Promise.all([
-    readTransactions(),
-    readAutomationRules(),
-    readCategories(),
-  ])
-
+  const transactions = await listTransactionRecords()
   if (transactions.length === 0) {
     return 0
   }
 
-  const hasActiveRules = rules.some((rule) => rule.isActive)
-  if (!hasActiveRules) {
-    return 0
-  }
-
-  const evaluateRules = createAutomationRuleEvaluator(rules, categories)
-
+  const evaluator = await getAutomationEvaluator()
   let updatedCount = 0
-  const timestamp = new Date().toISOString()
 
-  const nextTransactions = transactions.map((transaction) => {
-    const match = evaluateRules(transaction.description)
-    if (!match) {
-      return transaction
-    }
+  await withTransaction(async (db) => {
+    for (const transaction of transactions) {
+      const match = evaluator(transaction.description)
+      if (!match) {
+        continue
+      }
 
-    if (transaction.category.toLowerCase() === match.categoryName.toLowerCase()) {
-      return transaction
-    }
+      const sameCategory =
+        transaction.categoryId === match.categoryId ||
+        transaction.categoryName.toLowerCase() === match.categoryName.toLowerCase()
 
-    updatedCount += 1
-    return {
-      ...transaction,
-      category: match.categoryName,
-      updatedAt: timestamp,
+      if (sameCategory) {
+        continue
+      }
+
+      const updated = await updateTransactionRecord(
+        transaction.id,
+        { categoryId: match.categoryId, categoryName: match.categoryName },
+        db,
+      )
+
+      if (updated) {
+        updatedCount += 1
+      }
     }
   })
-
-  if (updatedCount > 0) {
-    const sorted = sortTransactions(nextTransactions, "date", "desc")
-    await writeTransactions(sorted)
-  }
 
   return updatedCount
 }
 
+function buildFiltersFromParams(params: TransactionListParams): TransactionFilters {
+  const filters: TransactionFilters = {}
+
+  if (params.search) {
+    filters.search = params.search
+  }
+
+  if (params.categoryId) {
+    filters.categoryIds = [params.categoryId]
+  }
+
+  if (params.categoryName) {
+    filters.categoryNames = [params.categoryName]
+  }
+
+  if (params.status && VALID_STATUSES.includes(params.status as TransactionStatus)) {
+    filters.statuses = [params.status as TransactionStatus]
+  }
+
+  if (params.account) {
+    filters.accounts = [params.account]
+  }
+
+  if (params.type && VALID_TYPES.includes(params.type as TransactionType)) {
+    filters.types = [params.type as TransactionType]
+  }
+
+  if (params.startDate) {
+    filters.startDate = params.startDate
+  }
+
+  if (params.endDate) {
+    filters.endDate = params.endDate
+  }
+
+  return filters
+}
+
 export async function listTransactions(params: TransactionListParams): Promise<TransactionListResult> {
   const {
-    search,
-    category,
-    status,
-    account,
-    type,
-    startDate,
-    endDate,
     sortField = "date",
     sortDirection = "desc",
     page = 1,
     pageSize = DEFAULT_PAGE_SIZE,
   } = params
 
-  const transactions = await readTransactions()
-
-  const filtered = transactions.filter((transaction) => {
-    if (search) {
-      const normalized = search.toLowerCase()
-      const matchesSearch =
-        transaction.description.toLowerCase().includes(normalized) ||
-        transaction.category.toLowerCase().includes(normalized) ||
-        transaction.account.toLowerCase().includes(normalized)
-      if (!matchesSearch) {
-        return false
-      }
-    }
-
-    if (category && category !== "All Categories" && transaction.category !== category) {
-      return false
-    }
-
-    if (status && transaction.status !== status) {
-      return false
-    }
-
-    if (account && transaction.account !== account) {
-      return false
-    }
-
-    if (type && transaction.type !== type) {
-      return false
-    }
-
-    if (startDate) {
-      const transactionDate = new Date(transaction.date)
-      if (transactionDate < new Date(startDate)) {
-        return false
-      }
-    }
-
-    if (endDate) {
-      const transactionDate = new Date(transaction.date)
-      if (transactionDate > new Date(endDate)) {
-        return false
-      }
-    }
-
-    return true
-  })
-
-  const totals = filtered.reduce(
-    (acc, transaction) => {
-      if (transaction.amount >= 0) {
-        acc.income += transaction.amount
-      } else {
-        acc.expenses += Math.abs(transaction.amount)
-      }
-      acc.net = acc.income - acc.expenses
-      return acc
-    },
-    { income: 0, expenses: 0, net: 0 },
-  )
-
-  const sorted = sortTransactions(filtered, sortField, sortDirection)
-
   const safePage = Math.max(page, 1)
   const safePageSize = Math.max(Math.min(pageSize, 200), 1)
-  const startIndex = (safePage - 1) * safePageSize
-  const endIndex = startIndex + safePageSize
-  const paginated = sorted.slice(startIndex, endIndex)
+  const offset = (safePage - 1) * safePageSize
+
+  const filters = buildFiltersFromParams(params)
+  const options: TransactionQueryOptions = {
+    orderBy: ORDERABLE_FIELDS[sortField] ?? "date",
+    orderDirection: sortDirection === "asc" ? "asc" : "desc",
+    limit: safePageSize,
+    offset,
+  }
+
+  const [transactions, total, totals] = await Promise.all([
+    listTransactionRecords(filters, options),
+    countTransactions(filters),
+    calculateTransactionTotals(filters),
+  ])
 
   return {
-    transactions: paginated,
-    total: filtered.length,
+    transactions,
+    total,
     page: safePage,
     pageSize: safePageSize,
     totals,
   }
 }
 
-export async function createTransaction(input: CreateTransactionInput): Promise<Transaction> {
+async function prepareTransactionRecord(
+  input: CreateTransactionInput,
+  db?: Database,
+): Promise<CreateTransactionRecord> {
   const normalizedDate = normalizeDate(input.date)
-  const now = new Date().toISOString()
-  const type: TransactionType = VALID_TYPES.includes(input.type) ? input.type : "expense"
-  const status: TransactionStatus = VALID_STATUSES.includes(input.status) ? input.status : "completed"
+  const type = resolveType(input.type)
+  const status = resolveStatus(input.status)
   const amount = applyAmount(input.amount, type)
+  const notes = input.notes ?? null
 
-  const fallbackCategory = input.category || "Uncategorized"
+  const evaluator = await getAutomationEvaluator(db)
+  const baseCategory = await resolveCategoryReference(input.categoryId ?? null, input.categoryName, db)
+  const matched = evaluator(input.description)
+  const finalCategory = matched ?? baseCategory
 
-  const [transactions, rules, categories] = await Promise.all([
-    readTransactions(),
-    readAutomationRules(),
-    readCategories(),
-  ])
-
-  const evaluateRules = createAutomationRuleEvaluator(rules, categories)
-  const matchedCategory = evaluateRules(input.description)
-  const categoryName = matchedCategory?.categoryName ?? fallbackCategory
-
-  const transaction: Transaction = {
+  return {
     id: `txn_${randomUUID()}`,
     date: normalizedDate,
     description: input.description,
-    category: categoryName,
+    categoryId: finalCategory.categoryId,
+    categoryName: finalCategory.categoryName,
     amount,
     account: input.account,
     status,
     type,
-    notes: input.notes,
-    createdAt: now,
-    updatedAt: now,
+    notes,
   }
+}
 
-  transactions.push(transaction)
-  const sorted = sortTransactions(transactions, "date", "desc")
-  await writeTransactions(sorted)
-
-  return transaction
+export async function createTransaction(input: CreateTransactionInput): Promise<Transaction> {
+  return withTransaction(async (db) => {
+    const record = await prepareTransactionRecord(input, db)
+    return insertTransactionRecord(record, db)
+  })
 }
 
 export async function updateTransaction(id: string, updates: UpdateTransactionInput): Promise<Transaction> {
-  const [transactions, rules, categories] = await Promise.all([
-    readTransactions(),
-    readAutomationRules(),
-    readCategories(),
-  ])
-  const evaluateRules = createAutomationRuleEvaluator(rules, categories)
-  const index = transactions.findIndex((transaction) => transaction.id === id)
+  return withTransaction(async (db) => {
+    const existing = await getTransactionRecordById(id, db)
+    if (!existing) {
+      throw new Error("Transaction not found")
+    }
 
-  if (index === -1) {
-    throw new Error("Transaction not found")
-  }
+    const type = updates.type ? resolveType(updates.type) : existing.type
+    let amount = existing.amount
+    if (typeof updates.amount === "number") {
+      amount = applyAmount(updates.amount, type)
+    } else if (type !== existing.type) {
+      amount = applyAmount(Math.abs(existing.amount), type)
+    }
 
-  const existing = transactions[index]
-  const type = updates.type && VALID_TYPES.includes(updates.type) ? updates.type : existing.type
-  const status = updates.status && VALID_STATUSES.includes(updates.status) ? updates.status : existing.status
+    const status = updates.status ? resolveStatus(updates.status) : existing.status
+    const date = updates.date ? normalizeDate(updates.date) : existing.date
+    const notes = updates.notes ?? existing.notes ?? null
 
-  let amount = existing.amount
-  if (typeof updates.amount === "number") {
-    amount = applyAmount(updates.amount, type)
-  } else if (type !== existing.type) {
-    amount = applyAmount(Math.abs(existing.amount), type)
-  }
+    const evaluator = await getAutomationEvaluator(db)
+    const baseCategory = await resolveCategoryReference(
+      updates.categoryId ?? existing.categoryId,
+      updates.categoryName ?? existing.categoryName,
+      db,
+    )
+    const matched = evaluator(updates.description ?? existing.description)
+    const finalCategory = matched ?? baseCategory
 
-  const updated: Transaction = {
-    ...existing,
-    ...updates,
-    date: updates.date ? normalizeDate(updates.date) : existing.date,
-    amount,
-    type,
-    status,
-    updatedAt: new Date().toISOString(),
-  }
+    const updated = await updateTransactionRecord(
+      id,
+      {
+        date,
+        description: updates.description ?? existing.description,
+        categoryId: finalCategory.categoryId,
+        categoryName: finalCategory.categoryName,
+        amount,
+        account: updates.account ?? existing.account,
+        status,
+        type,
+        notes,
+      },
+      db,
+    )
 
-  const matchedCategory = evaluateRules(updated.description)
-  const fallbackCategory = updated.category || "Uncategorized"
-  const nextCategory = matchedCategory?.categoryName ?? fallbackCategory
+    if (!updated) {
+      throw new Error("Transaction not found")
+    }
 
-  const finalTransaction: Transaction = {
-    ...updated,
-    category: nextCategory,
-  }
-
-  transactions[index] = finalTransaction
-  const sorted = sortTransactions(transactions, "date", "desc")
-  await writeTransactions(sorted)
-
-  return finalTransaction
+    return updated
+  })
 }
 
-export async function deleteTransaction(id: string) {
-  const transactions = await readTransactions()
-  const filtered = transactions.filter((transaction) => transaction.id !== id)
-  if (filtered.length === transactions.length) {
+export async function deleteTransaction(id: string): Promise<void> {
+  const deleted = await withTransaction(async (db) => deleteTransactionRecord(id, db))
+  if (!deleted) {
     throw new Error("Transaction not found")
   }
-  const sorted = sortTransactions(filtered, "date", "desc")
-  await writeTransactions(sorted)
 }
 
 export function parseCsv(content: string): string[][] {
@@ -359,7 +375,7 @@ function sanitizeNumber(value: string): number {
   return amount
 }
 
-export function parseCsvTransactions(content: string, mapping: CsvMapping): CsvParseResult {
+export function parseCsvTransactions(content: string, mapping: CsvMapping) {
   const rows = parseCsv(content.replace(/^\uFEFF/, ""))
   if (rows.length === 0) {
     return { transactions: [], errors: [] }
@@ -416,7 +432,7 @@ export function parseCsvTransactions(content: string, mapping: CsvMapping): CsvP
         if (typeof categoryColumn === "number") {
           const categoryValue = row[categoryColumn]?.trim()
           if (categoryValue) {
-            parsed.category = categoryValue
+            parsed.categoryName = categoryValue
           }
         }
       }
@@ -475,57 +491,52 @@ export async function importTransactions(transactionsToImport: ParsedCsvTransact
     return { imported: 0, skipped: 0 }
   }
 
-  const [existingTransactions, rules, categories] = await Promise.all([
-    readTransactions(),
-    readAutomationRules(),
-    readCategories(),
-  ])
-  const evaluateRules = createAutomationRuleEvaluator(rules, categories)
+  const existingTransactions = await listTransactionRecords()
   const existingKeys = new Set(
     existingTransactions.map((transaction) =>
       [transaction.date, transaction.description.toLowerCase(), transaction.amount, transaction.account.toLowerCase()].join("|"),
     ),
   )
 
-  const newTransactions: Transaction[] = []
+  const evaluator = await getAutomationEvaluator()
 
-  transactionsToImport.forEach((entry) => {
-    const type = entry.type ?? (entry.amount >= 0 ? "income" : "expense")
+  const newRecords: CreateTransactionRecord[] = []
+
+  for (const entry of transactionsToImport) {
+    const type = resolveType(entry.type)
     const amount = applyAmount(entry.amount, type)
     const account = entry.account || "Checking"
-    const status = entry.status && VALID_STATUSES.includes(entry.status) ? entry.status : "completed"
+    const status = resolveStatus(entry.status)
     const key = [entry.date, entry.description.toLowerCase(), amount, account.toLowerCase()].join("|")
     if (existingKeys.has(key)) {
-      return
+      continue
     }
     existingKeys.add(key)
 
-    const now = new Date().toISOString()
-    const fallbackCategory = entry.category || "Uncategorized"
-    const matchedCategory = evaluateRules(entry.description)
-    const categoryName = matchedCategory?.categoryName ?? fallbackCategory
-    newTransactions.push({
+    const baseCategory = await resolveCategoryReference(entry.categoryId ?? null, entry.categoryName, undefined)
+    const matched = evaluator(entry.description)
+    const finalCategory = matched ?? baseCategory
+
+    newRecords.push({
       id: `txn_${randomUUID()}`,
       date: entry.date,
       description: entry.description,
-      category: categoryName,
+      categoryId: finalCategory.categoryId,
+      categoryName: finalCategory.categoryName,
       amount,
       account,
       status,
       type,
-      notes: entry.notes,
-      createdAt: now,
-      updatedAt: now,
+      notes: entry.notes ?? null,
     })
-  })
+  }
 
-  if (newTransactions.length > 0) {
-    const sorted = sortTransactions([...existingTransactions, ...newTransactions], "date", "desc")
-    await writeTransactions(sorted)
+  if (newRecords.length > 0) {
+    await bulkInsertTransactions(newRecords)
   }
 
   return {
-    imported: newTransactions.length,
-    skipped: transactionsToImport.length - newTransactions.length,
+    imported: newRecords.length,
+    skipped: transactionsToImport.length - newRecords.length,
   }
 }

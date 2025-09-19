@@ -1,9 +1,26 @@
 import { randomUUID } from "crypto"
-import { readAutomationRules, readCategories, writeAutomationRules, writeCategories } from "@/lib/categories/storage"
+import type Database from "better-sqlite3"
+
+import { getDatabase, initDatabase, withTransaction } from "@/lib/db"
+import { recordSyncLog } from "@/lib/db/sync-log"
+import { matchesAutomationRule } from "@/lib/categories/rule-matcher"
+import {
+  getCategoryById,
+  getCategoryByName,
+  insertCategory,
+  listCategories as listCategoryRecords,
+  updateCategory as updateCategoryRecord,
+  deleteCategory as deleteCategoryRecord,
+} from "@/lib/categories/repository"
+import {
+  insertAutomationRule,
+  listAutomationRules as listAutomationRuleRecords,
+  updateAutomationRule as updateAutomationRuleRecord,
+  deleteAutomationRule as deleteAutomationRuleRecord,
+} from "@/lib/categories/rule-repository"
 import type {
   AutomationRule,
   AutomationRuleWithStats,
-  Category,
   CategoryWithStats,
   CreateAutomationRuleInput,
   CreateCategoryInput,
@@ -12,10 +29,11 @@ import type {
   UpdateAutomationRuleInput,
   UpdateCategoryInput,
 } from "@/lib/categories/types"
-import { readTransactions, writeTransactions } from "@/lib/transactions/storage"
 import type { Transaction } from "@/lib/transactions/types"
-import { matchesAutomationRule } from "@/lib/categories/rule-matcher"
+import { listTransactions as listTransactionRecords } from "@/lib/transactions/repository"
 import { reapplyAutomationRules } from "@/lib/transactions/service"
+
+void initDatabase()
 
 type CategoryListParams = {
   search?: string
@@ -43,28 +61,208 @@ function sanitizeBudget(value: number): number {
   return Math.max(0, Number(value))
 }
 
-function computeCategoryStats(category: Category, transactions: Transaction[]): CategoryWithStats {
-  const relevantTransactions = transactions.filter(
-    (transaction) => transaction.category.toLowerCase() === category.name.toLowerCase(),
-  )
-
-  const spent = relevantTransactions.reduce((total, transaction) => {
-    if (transaction.amount < 0) {
-      return total + Math.abs(transaction.amount)
-    }
-    return total
-  }, 0)
+async function getCategoryStats(categoryId: string, categoryName: string, db?: Database) {
+  const connection = db ?? getDatabase()
+  const row = connection
+    .prepare(
+      `SELECT
+         SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) AS spent,
+         COUNT(id) AS transactionCount
+       FROM transactions
+       WHERE categoryId = ? OR (categoryId IS NULL AND categoryName = ?)`
+    )
+    .get(categoryId, categoryName) as { spent: number | null; transactionCount: number | null } | undefined
 
   return {
-    ...category,
-    spent,
-    transactionCount: relevantTransactions.length,
+    spent: Number(row?.spent ?? 0),
+    transactionCount: Number(row?.transactionCount ?? 0),
   }
+}
+
+function mapCategoryWithStats(
+  categories: Awaited<ReturnType<typeof listCategoryRecords>>,
+  statsById: Map<string, { spent: number; transactionCount: number }>,
+): CategoryWithStats[] {
+  return categories
+    .map((category) => {
+      const stats = statsById.get(category.id)
+      return {
+        ...category,
+        spent: stats?.spent ?? 0,
+        transactionCount: stats?.transactionCount ?? 0,
+      }
+    })
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function buildStatsMap(rows: Array<{ id: string; spent: number; transactionCount: number }>) {
+  return new Map(rows.map((row) => [row.id, { spent: Number(row.spent ?? 0), transactionCount: Number(row.transactionCount ?? 0) }]))
+}
+
+export async function listCategories(params: CategoryListParams = {}): Promise<CategoryWithStats[]> {
+  const categories = await listCategoryRecords(params.search ? { search: params.search } : {})
+  if (categories.length === 0) {
+    return []
+  }
+
+  const db = getDatabase()
+  const placeholders = categories.map(() => "?").join(", ")
+  const stats = db
+    .prepare(
+      `SELECT categories.id AS id,
+              COALESCE(SUM(CASE WHEN transactions.amount < 0 THEN ABS(transactions.amount) ELSE 0 END), 0) AS spent,
+              COUNT(transactions.id) AS transactionCount
+         FROM categories
+         LEFT JOIN transactions
+           ON transactions.categoryId = categories.id
+              OR (transactions.categoryId IS NULL AND transactions.categoryName = categories.name)
+        WHERE categories.id IN (${placeholders})
+        GROUP BY categories.id`
+    )
+    .all(...categories.map((category) => category.id)) as Array<{
+    id: string
+    spent: number
+    transactionCount: number
+  }>
+
+  const statsMap = buildStatsMap(stats)
+  return mapCategoryWithStats(categories, statsMap)
+}
+
+export async function createCategory(input: CreateCategoryInput): Promise<CategoryWithStats> {
+  const name = normalizeName(input.name)
+  if (!name) {
+    throw new Error("Category name is required")
+  }
+
+  const existing = await getCategoryByName(name)
+  if (existing) {
+    throw new Error("A category with this name already exists")
+  }
+
+  const category = await insertCategory({
+    id: `cat_${randomUUID()}`,
+    name,
+    icon: input.icon,
+    color: input.color,
+    monthlyBudget: sanitizeBudget(input.monthlyBudget),
+  })
+
+  const stats = await getCategoryStats(category.id, category.name)
+  return { ...category, ...stats }
+}
+
+export async function updateCategory(id: string, updates: UpdateCategoryInput): Promise<CategoryWithStats> {
+  return withTransaction(async (db) => {
+    const existing = await getCategoryById(id, db)
+    if (!existing) {
+      throw new Error("Category not found")
+    }
+
+    let name = existing.name
+    if (typeof updates.name === "string") {
+      const normalized = normalizeName(updates.name)
+      if (!normalized) {
+        throw new Error("Category name is required")
+      }
+      const duplicate = await getCategoryByName(normalized, db)
+      if (duplicate && duplicate.id !== id) {
+        throw new Error("A category with this name already exists")
+      }
+      name = normalized
+    }
+
+    const monthlyBudget =
+      typeof updates.monthlyBudget === "number" ? sanitizeBudget(updates.monthlyBudget) : existing.monthlyBudget
+
+    const updatedCategory = await updateCategoryRecord(
+      id,
+      {
+        name,
+        icon: updates.icon,
+        color: updates.color,
+        monthlyBudget,
+      },
+      db,
+    )
+
+    if (!updatedCategory) {
+      throw new Error("Category not found")
+    }
+
+    if (name !== existing.name) {
+      const affected = db
+        .prepare(
+          `SELECT id FROM transactions WHERE categoryId = ? OR (categoryId IS NULL AND categoryName = ?)`
+        )
+        .all(existing.id, existing.name) as Array<{ id: string }>
+
+      if (affected.length > 0) {
+        const timestamp = new Date().toISOString()
+        const placeholders = affected.map(() => "?").join(", ")
+        db
+          .prepare(
+            `UPDATE transactions
+             SET categoryId = ?, categoryName = ?, updatedAt = ?
+             WHERE id IN (${placeholders})`
+          )
+          .run(updatedCategory.id, updatedCategory.name, timestamp, ...affected.map((row) => row.id))
+
+        for (const row of affected) {
+          recordSyncLog(db, "transaction", row.id, timestamp)
+        }
+      }
+    }
+
+    const stats = await getCategoryStats(updatedCategory.id, updatedCategory.name, db)
+    return { ...updatedCategory, ...stats }
+  })
+}
+
+export async function deleteCategory(id: string) {
+  await withTransaction(async (db) => {
+    const category = await getCategoryById(id, db)
+    if (!category) {
+      throw new Error("Category not found")
+    }
+
+    const affected = db
+      .prepare(
+        `SELECT id FROM transactions WHERE categoryId = ? OR (categoryId IS NULL AND categoryName = ?)`
+      )
+      .all(category.id, category.name) as Array<{ id: string }>
+
+    if (affected.length > 0) {
+      const timestamp = new Date().toISOString()
+      const placeholders = affected.map(() => "?").join(", ")
+      db
+        .prepare(
+          `UPDATE transactions
+           SET categoryId = NULL, categoryName = 'Uncategorized', updatedAt = ?
+           WHERE id IN (${placeholders})`
+        )
+        .run(timestamp, ...affected.map((row) => row.id))
+
+      for (const row of affected) {
+        recordSyncLog(db, "transaction", row.id, timestamp)
+      }
+    }
+
+    const rules = await listAutomationRuleRecords({ categoryIds: [id] }, db)
+    for (const rule of rules) {
+      await deleteAutomationRuleRecord(rule.id, db)
+    }
+
+    const deleted = await deleteCategoryRecord(id, db)
+    if (!deleted) {
+      throw new Error("Category not found")
+    }
+  })
 }
 
 function computeRuleStats(
   rule: AutomationRule,
-  categoriesById: Map<string, Category>,
+  categoriesById: Map<string, { id: string; name: string }>,
   transactions: Transaction[],
 ): AutomationRuleWithStats {
   const category = categoriesById.get(rule.categoryId)
@@ -88,166 +286,15 @@ function computeRuleStats(
   }
 }
 
-export async function listCategories(params: CategoryListParams = {}): Promise<CategoryWithStats[]> {
-  const { search } = params
-  const [categories, transactions] = await Promise.all([readCategories(), readTransactions()])
-
-  const normalizedSearch = search?.trim().toLowerCase()
-
-  return categories
-    .map((category) => computeCategoryStats(category, transactions))
-    .filter((category) => {
-      if (!normalizedSearch) {
-        return true
-      }
-      return category.name.toLowerCase().includes(normalizedSearch)
-    })
-    .sort((a, b) => a.name.localeCompare(b.name))
-}
-
-export async function createCategory(input: CreateCategoryInput): Promise<CategoryWithStats> {
-  const name = normalizeName(input.name)
-  if (!name) {
-    throw new Error("Category name is required")
-  }
-
-  const categories = await readCategories()
-  const nameExists = categories.some((category) => category.name.toLowerCase() === name.toLowerCase())
-  if (nameExists) {
-    throw new Error("A category with this name already exists")
-  }
-
-  const now = new Date().toISOString()
-  const monthlyBudget = sanitizeBudget(input.monthlyBudget)
-
-  const category: Category = {
-    id: `cat_${randomUUID()}`,
-    name,
-    icon: input.icon,
-    color: input.color,
-    monthlyBudget,
-    createdAt: now,
-    updatedAt: now,
-  }
-
-  const nextCategories = [...categories, category].sort((a, b) => a.name.localeCompare(b.name))
-  await writeCategories(nextCategories)
-
-  const transactions = await readTransactions()
-  return computeCategoryStats(category, transactions)
-}
-
-export async function updateCategory(id: string, updates: UpdateCategoryInput): Promise<CategoryWithStats> {
-  const categories = await readCategories()
-  const index = categories.findIndex((category) => category.id === id)
-  if (index === -1) {
-    throw new Error("Category not found")
-  }
-
-  const existing = categories[index]
-
-  let name = existing.name
-  if (typeof updates.name === "string") {
-    const normalized = normalizeName(updates.name)
-    if (!normalized) {
-      throw new Error("Category name is required")
-    }
-    const duplicate = categories.some(
-      (category) => category.id !== id && category.name.toLowerCase() === normalized.toLowerCase(),
-    )
-    if (duplicate) {
-      throw new Error("A category with this name already exists")
-    }
-    name = normalized
-  }
-
-  const monthlyBudget =
-    typeof updates.monthlyBudget === "number"
-      ? sanitizeBudget(updates.monthlyBudget)
-      : existing.monthlyBudget
-
-  const updatedCategory: Category = {
-    ...existing,
-    ...updates,
-    name,
-    monthlyBudget,
-    updatedAt: new Date().toISOString(),
-  }
-
-  const nextCategories = [...categories]
-  nextCategories[index] = updatedCategory
-  nextCategories.sort((a, b) => a.name.localeCompare(b.name))
-  await writeCategories(nextCategories)
-
-  if (name !== existing.name) {
-    const transactions = await readTransactions()
-    let hasChanges = false
-    const updatedTransactions = transactions.map((transaction) => {
-      if (transaction.category.toLowerCase() === existing.name.toLowerCase()) {
-        hasChanges = true
-        return {
-          ...transaction,
-          category: updatedCategory.name,
-          updatedAt: new Date().toISOString(),
-        }
-      }
-      return transaction
-    })
-
-    if (hasChanges) {
-      await writeTransactions(updatedTransactions)
-    }
-  }
-
-  const transactions = await readTransactions()
-  return computeCategoryStats(updatedCategory, transactions)
-}
-
-export async function deleteCategory(id: string) {
-  const categories = await readCategories()
-  const category = categories.find((entry) => entry.id === id)
-  if (!category) {
-    throw new Error("Category not found")
-  }
-
-  const remainingCategories = categories.filter((entry) => entry.id !== id)
-  await writeCategories(remainingCategories)
-
-  const transactions = await readTransactions()
-  let hasChanges = false
-  const updatedTransactions = transactions.map((transaction) => {
-    if (transaction.category.toLowerCase() === category.name.toLowerCase()) {
-      hasChanges = true
-      return {
-        ...transaction,
-        category: "Uncategorized",
-        updatedAt: new Date().toISOString(),
-      }
-    }
-    return transaction
-  })
-
-  if (hasChanges) {
-    await writeTransactions(updatedTransactions)
-  }
-
-  const rules = await readAutomationRules()
-  const filteredRules = rules.filter((rule) => rule.categoryId !== id)
-  if (filteredRules.length !== rules.length) {
-    await writeAutomationRules(filteredRules)
-  }
-}
-
 export async function listAutomationRules(params: RuleListParams = {}): Promise<RuleListResult> {
-  const { search } = params
   const [rules, categories, transactions] = await Promise.all([
-    readAutomationRules(),
-    readCategories(),
-    readTransactions(),
+    listAutomationRuleRecords({}, undefined),
+    listCategoryRecords({}, undefined),
+    listTransactionRecords(),
   ])
 
   const categoriesById = new Map(categories.map((category) => [category.id, category]))
-  const normalizedSearch = search?.trim().toLowerCase()
+  const normalizedSearch = params.search?.trim().toLowerCase()
 
   const rulesWithStats = rules
     .map((rule) => computeRuleStats(rule, categoriesById, transactions))
@@ -273,13 +320,7 @@ export async function listAutomationRules(params: RuleListParams = {}): Promise<
 export async function createAutomationRule(
   input: CreateAutomationRuleInput,
 ): Promise<AutomationRuleMutationResult> {
-  const [rules, categories, transactions] = await Promise.all([
-    readAutomationRules(),
-    readCategories(),
-    readTransactions(),
-  ])
-
-  const category = categories.find((entry) => entry.id === input.categoryId)
+  const category = await getCategoryById(input.categoryId)
   if (!category) {
     throw new Error("Selected category does not exist")
   }
@@ -297,8 +338,7 @@ export async function createAutomationRule(
 
   const priority = Number.isFinite(input.priority) ? Math.max(1, Math.round(input.priority)) : 1
 
-  const now = new Date().toISOString()
-  const rule: AutomationRule = {
+  const rule = await insertAutomationRule({
     id: `rule_${randomUUID()}`,
     name,
     categoryId: input.categoryId,
@@ -307,16 +347,12 @@ export async function createAutomationRule(
     priority,
     isActive: Boolean(input.isActive),
     description: input.description?.trim() || undefined,
-    createdAt: now,
-    updatedAt: now,
-  }
-
-  const nextRules = [...rules, rule]
-  await writeAutomationRules(nextRules)
+  })
 
   const reprocessedCount = await reapplyAutomationRules()
 
-  const ruleWithStats = computeRuleStats(rule, new Map(categories.map((item) => [item.id, item])), transactions)
+  const transactions = await listTransactionRecords()
+  const ruleWithStats = computeRuleStats(rule, new Map([[category.id, category]]), transactions)
 
   return { rule: ruleWithStats, reprocessedCount }
 }
@@ -325,77 +361,58 @@ export async function updateAutomationRule(
   id: string,
   updates: UpdateAutomationRuleInput,
 ): Promise<AutomationRuleMutationResult> {
-  const [rules, categories, transactions] = await Promise.all([
-    readAutomationRules(),
-    readCategories(),
-    readTransactions(),
-  ])
-
-  const index = rules.findIndex((rule) => rule.id === id)
-  if (index === -1) {
+  const existing = await listAutomationRuleRecords({ ids: [id] })
+  const rule = existing[0]
+  if (!rule) {
     throw new Error("Rule not found")
   }
 
-  const existing = rules[index]
-
-  let categoryId = existing.categoryId
+  let categoryId = rule.categoryId
   if (typeof updates.categoryId === "string") {
-    const category = categories.find((entry) => entry.id === updates.categoryId)
+    const category = await getCategoryById(updates.categoryId)
     if (!category) {
       throw new Error("Selected category does not exist")
     }
     categoryId = category.id
   }
 
-  const type = updates.type && RULE_TYPES.includes(updates.type) ? updates.type : existing.type
-
+  const type = updates.type && RULE_TYPES.includes(updates.type) ? updates.type : rule.type
   const priority =
-    typeof updates.priority === "number"
-      ? Math.max(1, Math.round(updates.priority))
-      : existing.priority
-
+    typeof updates.priority === "number" ? Math.max(1, Math.round(updates.priority)) : rule.priority
   const pattern =
     typeof updates.pattern === "string" && updates.pattern.trim().length > 0
       ? updates.pattern.trim()
-      : existing.pattern
+      : rule.pattern
+  const name = typeof updates.name === "string" && updates.name.trim() ? updates.name.trim() : rule.name
 
-  let name = existing.name
-  if (typeof updates.name === "string") {
-    const trimmed = updates.name.trim()
-    if (!trimmed) {
-      throw new Error("Rule name is required")
-    }
-    name = trimmed
+  const updatedRule = await updateAutomationRuleRecord(
+    id,
+    {
+      categoryId,
+      type,
+      priority,
+      pattern,
+      name,
+      description: updates.description?.trim() ?? rule.description,
+      isActive: updates.isActive ?? rule.isActive,
+    },
+  )
+
+  if (!updatedRule) {
+    throw new Error("Rule not found")
   }
-
-  const updatedRule: AutomationRule = {
-    ...existing,
-    ...updates,
-    categoryId,
-    type,
-    priority,
-    pattern,
-    name,
-    description: updates.description?.trim() || existing.description,
-    updatedAt: new Date().toISOString(),
-  }
-
-  const nextRules = [...rules]
-  nextRules[index] = updatedRule
-  await writeAutomationRules(nextRules)
 
   const reprocessedCount = await reapplyAutomationRules()
-
+  const transactions = await listTransactionRecords()
+  const categories = await listCategoryRecords()
   const ruleWithStats = computeRuleStats(updatedRule, new Map(categories.map((item) => [item.id, item])), transactions)
 
   return { rule: ruleWithStats, reprocessedCount }
 }
 
 export async function deleteAutomationRule(id: string) {
-  const rules = await readAutomationRules()
-  const filtered = rules.filter((rule) => rule.id !== id)
-  if (filtered.length === rules.length) {
+  const deleted = await deleteAutomationRuleRecord(id)
+  if (!deleted) {
     throw new Error("Rule not found")
   }
-  await writeAutomationRules(filtered)
 }

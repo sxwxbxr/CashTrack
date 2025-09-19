@@ -16,10 +16,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import type { TransactionStatus, TransactionType } from "@/lib/transactions/types"
 
+interface CategoryOption {
+  id: string
+  name: string
+}
+
 export interface TransactionFormValues {
   date: string
   description: string
-  category: string
+  categoryId: string | null
+  categoryName: string
   amount: string
   account: string
   type: TransactionType
@@ -33,20 +39,8 @@ interface TransactionFormDialogProps {
   onOpenChange: (open: boolean) => void
   onSubmit: (values: TransactionFormValues) => Promise<void>
   initialValues?: TransactionFormValues
+  categories: CategoryOption[]
 }
-
-const categoryOptions = [
-  "Food & Dining",
-  "Transportation",
-  "Entertainment",
-  "Shopping",
-  "Bills & Utilities",
-  "Income",
-  "Healthcare",
-  "Education",
-  "Savings",
-  "Investments",
-]
 
 const accountOptions = ["Checking", "Savings", "Credit Card", "Cash", "Brokerage"]
 
@@ -55,7 +49,8 @@ const statusOptions: TransactionStatus[] = ["completed", "pending", "cleared"]
 const createDefaultValues = (): TransactionFormValues => ({
   date: new Date().toISOString().split("T")[0],
   description: "",
-  category: "",
+  categoryId: null,
+  categoryName: "Uncategorized",
   amount: "",
   account: "",
   type: "expense",
@@ -63,7 +58,14 @@ const createDefaultValues = (): TransactionFormValues => ({
   notes: "",
 })
 
-export function TransactionFormDialog({ open, mode, onOpenChange, onSubmit, initialValues }: TransactionFormDialogProps) {
+export function TransactionFormDialog({
+  open,
+  mode,
+  onOpenChange,
+  onSubmit,
+  initialValues,
+  categories,
+}: TransactionFormDialogProps) {
   const [formData, setFormData] = useState<TransactionFormValues>(createDefaultValues)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -84,13 +86,20 @@ export function TransactionFormDialog({ open, mode, onOpenChange, onSubmit, init
     setError(null)
     setIsSubmitting(true)
     try {
-      if (!formData.category || !formData.account) {
+      if (!formData.categoryName || !formData.account) {
         throw new Error("Please select a category and account")
       }
       if (!formData.amount) {
         throw new Error("Amount is required")
       }
-      await onSubmit(formData)
+
+      const payload: TransactionFormValues = {
+        ...formData,
+        categoryName: formData.categoryName || "Uncategorized",
+        categoryId: formData.categoryId ?? null,
+      }
+
+      await onSubmit(payload)
       setFormData(createDefaultValues())
       onOpenChange(false)
     } catch (submitError) {
@@ -155,16 +164,28 @@ export function TransactionFormDialog({ open, mode, onOpenChange, onSubmit, init
             <div className="space-y-2">
               <Label htmlFor="transaction-category">Category</Label>
               <Select
-                value={formData.category}
-                onValueChange={(value) => setFormData((prev) => ({ ...prev, category: value }))}
+                value={formData.categoryId ?? formData.categoryName ?? "uncategorized"}
+                onValueChange={(value) => {
+                  if (value === "uncategorized") {
+                    setFormData((prev) => ({ ...prev, categoryId: null, categoryName: "Uncategorized" }))
+                  } else {
+                    const option = categories.find((category) => category.id === value)
+                    setFormData((prev) => ({
+                      ...prev,
+                      categoryId: option?.id ?? null,
+                      categoryName: option?.name ?? "Uncategorized",
+                    }))
+                  }
+                }}
               >
                 <SelectTrigger id="transaction-category">
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {categoryOptions.map((category) => (
-                    <SelectItem key={category} value={category}>
-                      {category}
+                  <SelectItem value="uncategorized">Uncategorized</SelectItem>
+                  {categories.map((category) => (
+                    <SelectItem key={category.id} value={category.id}>
+                      {category.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

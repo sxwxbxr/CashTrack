@@ -19,9 +19,23 @@ yarn-error.log*
 # env files
 .env*
 
+# local database artifacts
+/data/*.db
+/data/*.db-shm
+/data/*.db-wal
+/data/*.sqlite
+# generated icons
+/public/icons/icon-*.png
+
+/cashtrack.db*
+
+# desktop release bundles
+/release/
+
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+

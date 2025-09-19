@@ -1,3 +1,6 @@
+import Link from "next/link"
+import { formatDistanceToNow } from "date-fns"
+
 import { AppLayout } from "@/components/app-layout"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -5,30 +8,79 @@ import { SpendingTrendChart } from "@/components/charts/spending-trend-chart"
 import { CategoryPieChart } from "@/components/charts/category-pie-chart"
 import { Plus, TrendingUp, TrendingDown, DollarSign, CreditCard, AlertTriangle } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { getDashboardAnalytics } from "@/lib/transactions/analytics"
 
-export default function DashboardPage() {
+const currencyFormatter = new Intl.NumberFormat(undefined, {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+})
+
+function formatCurrency(value: number): string {
+  return currencyFormatter.format(value)
+}
+
+function formatAbsoluteCurrency(value: number): string {
+  return currencyFormatter.format(Math.abs(value))
+}
+
+function formatChangeText(value: number | null): string {
+  if (value === null || Number.isNaN(value)) {
+    return "No previous month data"
+  }
+  const formatted = value.toFixed(1)
+  const sign = value >= 0 ? "+" : ""
+  return `${sign}${formatted}% from last month`
+}
+
+function formatRelativeDate(date: string): string {
+  const parsed = new Date(`${date}T00:00:00`)
+  if (Number.isNaN(parsed.getTime())) {
+    return date
+  }
+  return formatDistanceToNow(parsed, { addSuffix: true })
+}
+
+export default async function DashboardPage() {
+  const analytics = await getDashboardAnalytics()
+
+  const incomeChangeText = formatChangeText(analytics.incomeChangePercent)
+  const expenseChangeText = formatChangeText(analytics.expenseChangePercent)
+  const budgetUsageText =
+    analytics.budgetUsagePercent === null
+      ? "Set category budgets to track progress"
+      : `Spent ${Math.round(analytics.budgetUsagePercent)}% of monthly budget`
+
+  const budgetAlert = analytics.budgetWarning
+  const alertClassName = budgetAlert
+    ? "border-orange-200 bg-orange-50 dark:border-orange-900 dark:bg-orange-950"
+    : "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950"
+  const alertIconClass = budgetAlert ? "text-orange-600" : "text-emerald-600"
+  const alertTitle = budgetAlert ? "Budget Warning" : "On Track"
+  const alertDescription = budgetAlert
+    ? `You're at ${Math.round(budgetAlert.usagePercent)}% of your ${budgetAlert.categoryName} budget this month. Plan upcoming purchases carefully.`
+    : "All categories are within budget so far this month. Keep up the great work!"
+
   return (
     <AppLayout
       title="Dashboard"
       description="Overview of your finances"
       action={
-        <Button size="sm">
-          <Plus className="mr-2 h-4 w-4" />
-          Add Transaction
+        <Button size="sm" asChild>
+          <Link href="/transactions">
+            <Plus className="mr-2 h-4 w-4" />
+            Add Transaction
+          </Link>
         </Button>
       }
     >
       <div className="space-y-6">
-        {/* Budget Alert */}
-        <Alert className="border-orange-200 bg-orange-50 dark:border-orange-900 dark:bg-orange-950">
-          <AlertTriangle className="h-4 w-4 text-orange-600" />
-          <AlertTitle className="text-orange-800 dark:text-orange-200">Budget Warning</AlertTitle>
-          <AlertDescription className="text-orange-700 dark:text-orange-300">
-            You&apos;ve spent 85% of your monthly food budget. Consider reducing dining expenses.
-          </AlertDescription>
+        <Alert className={alertClassName}>
+          <AlertTriangle className={`h-4 w-4 ${alertIconClass}`} />
+          <AlertTitle>{alertTitle}</AlertTitle>
+          <AlertDescription>{alertDescription}</AlertDescription>
         </Alert>
 
-        {/* Overview Cards */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -36,8 +88,10 @@ export default function DashboardPage() {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">$2,350.00</div>
-              <p className="text-xs text-muted-foreground">+20.1% from last month</p>
+              <div className="text-2xl font-bold">{formatCurrency(analytics.balance)}</div>
+              <p className="text-xs text-muted-foreground">
+                Net {formatCurrency(analytics.monthlyNet)} this month
+              </p>
             </CardContent>
           </Card>
           <Card>
@@ -46,8 +100,8 @@ export default function DashboardPage() {
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">$4,200.00</div>
-              <p className="text-xs text-muted-foreground">+5.2% from last month</p>
+              <div className="text-2xl font-bold">{formatCurrency(analytics.monthlyIncome)}</div>
+              <p className="text-xs text-muted-foreground">{incomeChangeText}</p>
             </CardContent>
           </Card>
           <Card>
@@ -56,8 +110,8 @@ export default function DashboardPage() {
               <TrendingDown className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">$1,850.00</div>
-              <p className="text-xs text-muted-foreground">-12.5% from last month</p>
+              <div className="text-2xl font-bold">{formatCurrency(analytics.monthlyExpenses)}</div>
+              <p className="text-xs text-muted-foreground">{expenseChangeText}</p>
             </CardContent>
           </Card>
           <Card>
@@ -66,21 +120,22 @@ export default function DashboardPage() {
               <CreditCard className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">$650.00</div>
-              <p className="text-xs text-muted-foreground">32% of monthly budget</p>
+              <div className="text-2xl font-bold">{formatCurrency(analytics.budgetRemaining)}</div>
+              <p className="text-xs text-muted-foreground">{budgetUsageText}</p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Charts Section */}
         <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader>
               <CardTitle>Spending Trend</CardTitle>
-              <CardDescription>Income vs expenses over the last 7 months</CardDescription>
+              <CardDescription>
+                Income vs expenses over the last {analytics.trend.length} months
+              </CardDescription>
             </CardHeader>
             <CardContent className="pl-2">
-              <SpendingTrendChart />
+              <SpendingTrendChart data={analytics.trend} />
             </CardContent>
           </Card>
           <Card>
@@ -89,12 +144,11 @@ export default function DashboardPage() {
               <CardDescription>Current month breakdown</CardDescription>
             </CardHeader>
             <CardContent>
-              <CategoryPieChart />
+              <CategoryPieChart data={analytics.categoryBreakdown} />
             </CardContent>
           </Card>
         </div>
 
-        {/* Recent Activity */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
           <Card className="col-span-4">
             <CardHeader>
@@ -102,60 +156,36 @@ export default function DashboardPage() {
               <CardDescription>Your latest financial activity</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {[
-                  {
-                    name: "Grocery Store",
-                    amount: -85.5,
-                    category: "Food",
-                    date: "Today",
-                    description: "Weekly groceries",
-                  },
-                  {
-                    name: "Salary Deposit",
-                    amount: 2100.0,
-                    category: "Income",
-                    date: "Yesterday",
-                    description: "Monthly salary",
-                  },
-                  {
-                    name: "Gas Station",
-                    amount: -45.2,
-                    category: "Transport",
-                    date: "2 days ago",
-                    description: "Fuel",
-                  },
-                  {
-                    name: "Coffee Shop",
-                    amount: -12.5,
-                    category: "Food",
-                    date: "3 days ago",
-                    description: "Morning coffee",
-                  },
-                  {
-                    name: "Netflix",
-                    amount: -15.99,
-                    category: "Entertainment",
-                    date: "5 days ago",
-                    description: "Monthly subscription",
-                  },
-                ].map((transaction, index) => (
-                  <div key={index} className="flex items-center justify-between border-b pb-4 last:border-b-0">
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium leading-none">{transaction.name}</p>
-                      <p className="text-xs text-muted-foreground">{transaction.description}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {transaction.category} • {transaction.date}
-                      </p>
-                    </div>
-                    <div
-                      className={`text-sm font-medium ${transaction.amount > 0 ? "text-green-600" : "text-red-600"}`}
-                    >
-                      {transaction.amount > 0 ? "+" : ""}${Math.abs(transaction.amount).toFixed(2)}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              {analytics.recentTransactions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Add your first transaction to see it here.
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  {analytics.recentTransactions.map((transaction) => {
+                    const isIncome = transaction.amount >= 0
+                    return (
+                      <div key={transaction.id} className="flex items-center justify-between border-b pb-4 last:border-b-0">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium leading-none">{transaction.description}</p>
+                          {transaction.notes ? (
+                            <p className="text-xs text-muted-foreground">{transaction.notes}</p>
+                          ) : null}
+                          <p className="text-xs text-muted-foreground">
+                            {transaction.categoryName}
+                            {transaction.account ? ` • ${transaction.account}` : ""}
+                            {" "}• {formatRelativeDate(transaction.date)}
+                          </p>
+                        </div>
+                        <div className={`text-sm font-medium ${isIncome ? "text-green-600" : "text-red-600"}`}>
+                          {isIncome ? "+" : "-"}
+                          {formatAbsoluteCurrency(transaction.amount)}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
           <Card className="col-span-3">
@@ -164,34 +194,39 @@ export default function DashboardPage() {
               <CardDescription>Monthly spending by category</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {[
-                  { category: "Food", spent: 450, budget: 600, color: "bg-blue-500" },
-                  { category: "Transport", spent: 280, budget: 300, color: "bg-green-500" },
-                  { category: "Entertainment", spent: 120, budget: 200, color: "bg-yellow-500" },
-                  { category: "Shopping", spent: 350, budget: 400, color: "bg-purple-500" },
-                ].map((item, index) => (
-                  <div key={index} className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium">{item.category}</span>
-                      <span className="text-muted-foreground">
-                        ${item.spent} / ${item.budget}
-                      </span>
-                    </div>
-                    <div className="w-full bg-secondary rounded-full h-2">
-                      <div
-                        className={`h-2 rounded-full ${item.color} ${
-                          item.spent / item.budget > 0.8 ? "bg-red-500" : item.color
-                        }`}
-                        style={{ width: `${Math.min((item.spent / item.budget) * 100, 100)}%` }}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {((item.spent / item.budget) * 100).toFixed(0)}% used
-                    </p>
-                  </div>
-                ))}
-              </div>
+              {analytics.budgetOverview.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Set category budgets to monitor your progress throughout the month.
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  {analytics.budgetOverview.map((item) => {
+                    const utilization = item.budget > 0 ? item.spent / item.budget : 1
+                    const usagePercent = Math.min(Math.round(utilization * 100), 999)
+                    const barWidth = `${Math.min(Math.max(utilization, 0), 1) * 100}%`
+                    const progressClass = item.budget > 0 && utilization < 1 ? item.colorClass : "bg-red-500"
+
+                    return (
+                      <div key={item.id} className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="font-medium">{item.name}</span>
+                          <span className="text-muted-foreground">
+                            {formatCurrency(item.spent)} / {formatCurrency(item.budget)}
+                          </span>
+                        </div>
+                        <div className="w-full rounded-full bg-secondary h-2">
+                          <div className={`h-2 rounded-full ${progressClass}`} style={{ width: barWidth }} />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {item.budget > 0
+                            ? `${usagePercent}% of budget used`
+                            : "No budget set"}
+                        </p>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
+
 import { createAutomationRule, listAutomationRules } from "@/lib/categories/service"
+import { AuthenticationError, PasswordChangeRequiredError, requireSession } from "@/lib/auth/session"
 
 const querySchema = z.object({
   search: z.string().optional(),
@@ -18,10 +20,9 @@ const createSchema = z.object({
 
 type QueryParams = z.infer<typeof querySchema>
 
-type CreateRulePayload = z.infer<typeof createSchema>
-
 export async function GET(request: NextRequest) {
   try {
+    await requireSession()
     const url = new URL(request.url)
     const params = Object.fromEntries(url.searchParams.entries())
     const parsed = querySchema.safeParse(params)
@@ -33,12 +34,19 @@ export async function GET(request: NextRequest) {
     const rules = await listAutomationRules(parsed.data as QueryParams)
     return NextResponse.json(rules)
   } catch (error) {
+    if (error instanceof AuthenticationError) {
+      return NextResponse.json({ error: error.message }, { status: 401 })
+    }
+    if (error instanceof PasswordChangeRequiredError) {
+      return NextResponse.json({ error: error.message }, { status: 403 })
+    }
     return NextResponse.json({ error: (error as Error).message }, { status: 500 })
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    await requireSession()
     const payload = await request.json()
     const parsed = createSchema.safeParse(payload)
 
@@ -46,9 +54,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
     }
 
-    const { rule, reprocessedCount } = await createAutomationRule(parsed.data as CreateRulePayload)
+    const { rule, reprocessedCount } = await createAutomationRule(parsed.data)
     return NextResponse.json({ rule, reprocessedCount }, { status: 201 })
   } catch (error) {
+    if (error instanceof AuthenticationError) {
+      return NextResponse.json({ error: error.message }, { status: 401 })
+    }
+    if (error instanceof PasswordChangeRequiredError) {
+      return NextResponse.json({ error: error.message }, { status: 403 })
+    }
     return NextResponse.json({ error: (error as Error).message }, { status: 500 })
   }
 }

@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
+
 import { deleteTransaction, updateTransaction } from "@/lib/transactions/service"
+import { AuthenticationError, PasswordChangeRequiredError, requireSession } from "@/lib/auth/session"
 
 const updateSchema = z.object({
   date: z.string().optional(),
   description: z.string().optional(),
-  category: z.string().optional(),
+  categoryId: z.string().optional().nullable(),
+  categoryName: z.string().optional(),
   amount: z.coerce.number().optional(),
   account: z.string().optional(),
   status: z.enum(["pending", "completed", "cleared"]).optional(),
@@ -15,6 +18,7 @@ const updateSchema = z.object({
 
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    await requireSession()
     const payload = await request.json()
     const parsed = updateSchema.safeParse(payload)
 
@@ -25,15 +29,28 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     const transaction = await updateTransaction(params.id, parsed.data)
     return NextResponse.json({ transaction })
   } catch (error) {
+    if (error instanceof AuthenticationError) {
+      return NextResponse.json({ error: error.message }, { status: 401 })
+    }
+    if (error instanceof PasswordChangeRequiredError) {
+      return NextResponse.json({ error: error.message }, { status: 403 })
+    }
     return NextResponse.json({ error: (error as Error).message }, { status: 500 })
   }
 }
 
 export async function DELETE(_request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    await requireSession()
     await deleteTransaction(params.id)
     return NextResponse.json({ success: true })
   } catch (error) {
+    if (error instanceof AuthenticationError) {
+      return NextResponse.json({ error: error.message }, { status: 401 })
+    }
+    if (error instanceof PasswordChangeRequiredError) {
+      return NextResponse.json({ error: error.message }, { status: 403 })
+    }
     return NextResponse.json({ error: (error as Error).message }, { status: 500 })
   }
 }
