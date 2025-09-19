@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { format, formatDistanceToNowStrict } from "date-fns"
 import { toast } from "sonner"
 import { AppLayout } from "@/components/app-layout"
@@ -55,6 +55,7 @@ import type {
   StartOfWeek,
   BackupFrequency,
   AccountType,
+  CreateCsvTemplateInput,
 } from "@/lib/settings/types"
 
 const currencyOptions = [
@@ -331,6 +332,9 @@ export default function SettingsPage() {
   const [templateForm, setTemplateForm] = useState<TemplateFormState>(defaultTemplateForm)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null)
+  const [importingTemplates, setImportingTemplates] = useState(false)
+
+  const templateImportInputRef = useRef<HTMLInputElement | null>(null)
 
   const [creatingBackup, setCreatingBackup] = useState(false)
   const [deletingBackupId, setDeletingBackupId] = useState<string | null>(null)
@@ -806,6 +810,233 @@ export default function SettingsPage() {
       toast.error(message)
     } finally {
       setDeletingTemplateId(null)
+    }
+  }
+
+  const handleExportTemplates = () => {
+    const currentTemplates = settings?.dataSources.csvTemplates ?? []
+    if (currentTemplates.length === 0) {
+      toast.info("No templates to export", {
+        description: "Add a template before exporting.",
+      })
+      return
+    }
+
+    let objectUrl: string | null = null
+    let link: HTMLAnchorElement | null = null
+
+    try {
+      const exportPayload = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        templates: currentTemplates.map(({ id, createdAt, updatedAt, ...template }) => template),
+      }
+
+      const blob = new Blob([JSON.stringify(exportPayload, null, 2)], {
+        type: "application/json",
+      })
+      objectUrl = URL.createObjectURL(blob)
+      link = document.createElement("a")
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
+      link.href = objectUrl
+      link.download = `cashtrack-templates-${timestamp}.json`
+      document.body.appendChild(link)
+      link.click()
+
+      toast.success("Templates exported", {
+        description: `${currentTemplates.length} template${currentTemplates.length === 1 ? "" : "s"} downloaded.`,
+      })
+    } catch (exportError) {
+      const message =
+        exportError instanceof Error ? exportError.message : "Unable to export templates"
+      toast.error(message)
+    } finally {
+      if (link && link.parentNode) {
+        link.parentNode.removeChild(link)
+      }
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl)
+      }
+    }
+  }
+
+  const handleImportTemplates = () => {
+    if (importingTemplates) {
+      return
+    }
+
+    templateImportInputRef.current?.click()
+  }
+
+  const handleTemplateFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.target
+    const file = input.files?.[0]
+    if (!file) {
+      input.value = ""
+      return
+    }
+
+    setImportingTemplates(true)
+
+    try {
+      const fileContents = await file.text()
+
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(fileContents)
+      } catch {
+        throw new Error("Import file is not valid JSON")
+      }
+
+      const rawTemplates = Array.isArray(parsed)
+        ? parsed
+        : typeof parsed === "object" &&
+            parsed !== null &&
+            Array.isArray((parsed as { templates?: unknown }).templates)
+          ? ((parsed as { templates: unknown[] }).templates)
+          : null
+
+      if (!rawTemplates || rawTemplates.length === 0) {
+        toast.error("No templates found", {
+          description: "The selected file does not contain any templates to import.",
+        })
+        return
+      }
+
+      const normalized = rawTemplates
+        .map((item) => {
+          if (!item || typeof item !== "object") {
+            return null
+          }
+
+          const template = item as Partial<CsvTemplate> & Partial<CreateCsvTemplateInput>
+
+          const name = typeof template.name === "string" ? template.name.trim() : ""
+          const columns = Array.isArray(template.columns)
+            ? template.columns
+                .map((column) =>
+                  typeof column === "string" ? column.trim() : String(column).trim(),
+                )
+                .filter((column) => column.length > 0)
+            : typeof template.columns === "string"
+              ? parseColumns(template.columns)
+              : []
+          const delimiter =
+            typeof template.delimiter === "string" && template.delimiter.length > 0
+              ? template.delimiter
+              : ","
+          const hasHeaders =
+            typeof template.hasHeaders === "boolean" ? template.hasHeaders : true
+          const dateColumn =
+            typeof template.dateColumn === "string" ? template.dateColumn.trim() : ""
+          const amountColumn =
+            typeof template.amountColumn === "string" ? template.amountColumn.trim() : ""
+          const descriptionColumn =
+            typeof template.descriptionColumn === "string"
+              ? template.descriptionColumn.trim()
+              : ""
+          const description =
+            typeof template.description === "string"
+              ? template.description.trim() || undefined
+              : undefined
+          const active =
+            typeof template.active === "boolean" ? template.active : undefined
+
+          if (!name || !columns.length || !dateColumn || !amountColumn || !descriptionColumn) {
+            return null
+          }
+
+          const payload: CreateCsvTemplateInput = {
+            name,
+            columns,
+            delimiter,
+            hasHeaders,
+            dateColumn,
+            amountColumn,
+            descriptionColumn,
+          }
+
+          if (description) {
+            payload.description = description
+          }
+
+          if (active !== undefined) {
+            payload.active = active
+          }
+
+          return payload
+        })
+        .filter((value): value is CreateCsvTemplateInput => value !== null)
+
+      if (!normalized.length) {
+        toast.error("No templates could be imported", {
+          description: "None of the templates in the file were valid.",
+        })
+        return
+      }
+
+      let latestSettingsData: SettingsData | null = null
+      let successCount = 0
+      const failures: Array<{ name: string; message: string }> = []
+
+      for (const template of normalized) {
+        try {
+          const response = await fetch("/api/settings/templates", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(template),
+          })
+
+          const result = await handleApiResponse<{ template: CsvTemplate; settings: SettingsData }>(
+            response,
+            "Unable to import template",
+          )
+
+          latestSettingsData = result.settings
+          successCount += 1
+        } catch (templateError) {
+          const message =
+            templateError instanceof Error ? templateError.message : "Unable to import template"
+          failures.push({ name: template.name, message })
+        }
+      }
+
+      if (latestSettingsData) {
+        setSettings(latestSettingsData)
+      }
+
+      if (successCount > 0) {
+        const skippedSummary =
+          failures.length > 0
+            ? `Skipped ${failures.length} template${failures.length === 1 ? "" : "s"} (${failures
+                .map((failure) => failure.name)
+                .join(", ")}).`
+            : ""
+
+        toast.success("Templates imported", {
+          description: `${successCount} template${successCount === 1 ? "" : "s"} imported successfully.${
+            skippedSummary ? ` ${skippedSummary}` : ""
+          }`,
+        })
+      } else {
+        const description =
+          failures.length > 0
+            ? failures
+                .map((failure) =>
+                  failure.name ? `${failure.name}: ${failure.message}` : failure.message,
+                )
+                .join("\n")
+            : "The selected file did not contain any valid templates."
+
+        toast.error("Unable to import templates", { description })
+      }
+    } catch (importError) {
+      const message =
+        importError instanceof Error ? importError.message : "Unable to import templates"
+      toast.error(message)
+    } finally {
+      setImportingTemplates(false)
+      input.value = ""
     }
   }
 
@@ -1352,14 +1583,33 @@ export default function SettingsPage() {
                       <Plus className="mr-2 h-4 w-4" />
                       Add template
                     </Button>
-                    <Button variant="outline" onClick={handleExportTemplates}>
+                    <Button
+                      variant="outline"
+                      onClick={handleExportTemplates}
+                      disabled={templates.length === 0}
+                    >
                       <Download className="mr-2 h-4 w-4" />
                       Export templates
                     </Button>
-                    <Button variant="outline" onClick={handleImportTemplates}>
-                      <Upload className="mr-2 h-4 w-4" />
-                      Import templates
+                    <Button
+                      variant="outline"
+                      onClick={handleImportTemplates}
+                      disabled={importingTemplates}
+                    >
+                      {importingTemplates ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Upload className="mr-2 h-4 w-4" />
+                      )}
+                      {importingTemplates ? "Importing..." : "Import templates"}
                     </Button>
+                    <input
+                      ref={templateImportInputRef}
+                      type="file"
+                      accept="application/json"
+                      className="hidden"
+                      onChange={handleTemplateFileChange}
+                    />
                   </div>
                 </CardContent>
               </Card>
