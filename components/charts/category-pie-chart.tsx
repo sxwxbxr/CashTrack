@@ -2,15 +2,25 @@
 
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts"
 
-const data = [
-  { name: "Food & Dining", value: 450, color: "hsl(var(--chart-1))" },
-  { name: "Transportation", value: 280, color: "hsl(var(--chart-2))" },
-  { name: "Shopping", value: 350, color: "hsl(var(--chart-3))" },
-  { name: "Entertainment", value: 120, color: "hsl(var(--chart-4))" },
-  { name: "Bills & Utilities", value: 650, color: "hsl(var(--chart-5))" },
-]
+interface CategoryPieChartProps {
+  data: Array<{ name: string; value: number; color: string }>
+}
 
-export function CategoryPieChart() {
+function formatCurrency(value: number) {
+  return Number(value).toLocaleString(undefined, { style: "currency", currency: "USD" })
+}
+
+export function CategoryPieChart({ data }: CategoryPieChartProps) {
+  const hasData = data.some((entry) => entry.value > 0)
+
+  if (!hasData) {
+    return (
+      <div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
+        Add categorized expenses to see your spending breakdown.
+      </div>
+    )
+  }
+
   return (
     <ResponsiveContainer width="100%" height={300}>
       <PieChart>
@@ -19,30 +29,31 @@ export function CategoryPieChart() {
           cx="50%"
           cy="50%"
           labelLine={false}
+          nameKey="name"
           label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
           outerRadius={80}
-          fill="#8884d8"
           dataKey="value"
         >
           {data.map((entry, index) => (
-            <Cell key={`cell-${index}`} fill={entry.color} />
+            <Cell key={`${entry.name}-${index}`} fill={entry.color} />
           ))}
         </Pie>
         <Tooltip
           content={({ active, payload }) => {
-            if (active && payload && payload.length) {
-              return (
-                <div className="rounded-lg border bg-background p-2 shadow-sm">
-                  <div className="grid grid-cols-1 gap-2">
-                    <div className="flex flex-col">
-                      <span className="text-[0.70rem] uppercase text-muted-foreground">{payload[0].name}</span>
-                      <span className="font-bold">${payload[0].value}</span>
-                    </div>
-                  </div>
-                </div>
-              )
+            if (!active || !payload?.length) {
+              return null
             }
-            return null
+
+            const point = payload[0]
+
+            return (
+              <div className="rounded-lg border bg-background p-2 shadow-sm">
+                <div className="flex flex-col space-y-1">
+                  <span className="text-[0.70rem] uppercase text-muted-foreground">{point.name}</span>
+                  <span className="font-medium text-muted-foreground">{formatCurrency(Number(point.value ?? 0))}</span>
+                </div>
+              </div>
+            )
           }}
         />
       </PieChart>

@@ -18,12 +18,13 @@ interface Transaction {
   id: string
   date: string
   description: string
-  category: string
+  categoryId: string | null
+  categoryName: string
   amount: number
   account: string
   status: TransactionStatus
   type: TransactionType
-  notes?: string
+  notes?: string | null
 }
 
 interface TransactionsResponse {
@@ -38,23 +39,17 @@ interface TransactionsResponse {
   }
 }
 
-const categories = [
-  "All Categories",
-  "Food & Dining",
-  "Transportation",
-  "Entertainment",
-  "Shopping",
-  "Bills & Utilities",
-  "Income",
-  "Healthcare",
-  "Education",
-  "Savings",
-  "Investments",
-]
+interface CategoryOption {
+  id: string
+  name: string
+  color: string
+}
+
+const DEFAULT_CATEGORY_FILTER = "all"
 
 export default function TransactionsPage() {
   const [searchTerm, setSearchTerm] = useState("")
-  const [selectedCategory, setSelectedCategory] = useState("All Categories")
+  const [categoryFilter, setCategoryFilter] = useState<string>(DEFAULT_CATEGORY_FILTER)
   const [sortField, setSortField] = useState<"date" | "amount" | "description">("date")
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc")
   const [transactions, setTransactions] = useState<Transaction[]>([])
@@ -66,6 +61,27 @@ export default function TransactionsPage() {
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [formMode, setFormMode] = useState<"create" | "edit">("create")
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
+  const [categories, setCategories] = useState<CategoryOption[]>([])
+
+  const loadCategories = useCallback(async () => {
+    try {
+      const response = await fetch("/api/categories", { cache: "no-store" })
+      if (!response.ok) {
+        throw new Error("Failed to load categories")
+      }
+      const data = (await response.json()) as { categories: Array<{ id: string; name: string; color: string }> }
+      setCategories(data.categories.map((category) => ({
+        id: category.id,
+        name: category.name,
+        color: category.color,
+      })))
+    } catch (loadError) {
+      console.error(loadError)
+      toast.error("Unable to load categories", {
+        description: loadError instanceof Error ? loadError.message : undefined,
+      })
+    }
+  }, [])
 
   const fetchTransactions = useCallback(async () => {
     setIsLoading(true)
@@ -78,8 +94,10 @@ export default function TransactionsPage() {
       if (searchTerm.trim()) {
         params.set("search", searchTerm.trim())
       }
-      if (selectedCategory !== "All Categories") {
-        params.set("category", selectedCategory)
+      if (categoryFilter === "uncategorized") {
+        params.set("categoryName", "Uncategorized")
+      } else if (categoryFilter !== DEFAULT_CATEGORY_FILTER) {
+        params.set("categoryId", categoryFilter)
       }
 
       const response = await fetch(`/api/transactions?${params.toString()}`, { cache: "no-store" })
@@ -100,7 +118,11 @@ export default function TransactionsPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [searchTerm, selectedCategory, sortField, sortDirection])
+  }, [searchTerm, categoryFilter, sortField, sortDirection])
+
+  useEffect(() => {
+    loadCategories()
+  }, [loadCategories])
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -140,7 +162,8 @@ export default function TransactionsPage() {
     const payload = {
       date: values.date,
       description: values.description,
-      category: values.category,
+      categoryId: values.categoryId,
+      categoryName: values.categoryName || "Uncategorized",
       amount: Math.abs(amount),
       account: values.account,
       status: values.status,
@@ -213,28 +236,13 @@ export default function TransactionsPage() {
     fetchTransactions()
   }
 
-  const getCategoryColor = useCallback((category: string) => {
-    const colors: Record<string, string> = {
-      "Food & Dining": "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
-      Transportation: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
-      Entertainment: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300",
-      Shopping: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300",
-      "Bills & Utilities": "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
-      Income: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300",
-      Healthcare: "bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-300",
-      Education: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300",
-      Savings: "bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-300",
-      Investments: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300",
-    }
-    return colors[category] || "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300"
-  }, [])
-
   const selectedTransactionValues = useMemo(() => {
     if (!selectedTransaction) return undefined
     return {
       date: selectedTransaction.date,
       description: selectedTransaction.description,
-      category: selectedTransaction.category,
+      categoryId: selectedTransaction.categoryId,
+      categoryName: selectedTransaction.categoryName,
       amount: Math.abs(selectedTransaction.amount).toString(),
       account: selectedTransaction.account,
       type: selectedTransaction.type,
@@ -287,9 +295,7 @@ export default function TransactionsPage() {
           </div>
         </TableCell>
         <TableCell>
-          <Badge variant="secondary" className={getCategoryColor(transaction.category)}>
-            {transaction.category}
-          </Badge>
+          <Badge variant="secondary">{transaction.categoryName || "Uncategorized"}</Badge>
         </TableCell>
         <TableCell className="text-muted-foreground">{transaction.account}</TableCell>
         <TableCell>
@@ -350,15 +356,17 @@ export default function TransactionsPage() {
                   className="pl-8"
                 />
               </div>
-              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                 <SelectTrigger className="w-full md:w-[220px]">
                   <Filter className="mr-2 h-4 w-4" />
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value={DEFAULT_CATEGORY_FILTER}>All Categories</SelectItem>
+                  <SelectItem value="uncategorized">Uncategorized</SelectItem>
                   {categories.map((category) => (
-                    <SelectItem key={category} value={category}>
-                      {category}
+                    <SelectItem key={category.id} value={category.id}>
+                      {category.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -421,6 +429,7 @@ export default function TransactionsPage() {
         mode={formMode}
         onSubmit={handleFormSubmit}
         initialValues={selectedTransactionValues}
+        categories={categories.map(({ id, name }) => ({ id, name }))}
       />
     </AppLayout>
   )

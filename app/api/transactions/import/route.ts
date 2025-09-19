@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { importTransactions, parseCsvTransactions } from "@/lib/transactions/service"
+import { AuthenticationError, PasswordChangeRequiredError, requireSession } from "@/lib/auth/session"
 
 export async function POST(request: NextRequest) {
   try {
+    await requireSession()
     const formData = await request.formData()
     const file = formData.get("file")
     const mappingRaw = formData.get("mapping")
@@ -28,6 +30,12 @@ export async function POST(request: NextRequest) {
     const result = await importTransactions(transactions)
     return NextResponse.json({ ...result, errors })
   } catch (error) {
+    if (error instanceof AuthenticationError) {
+      return NextResponse.json({ error: error.message }, { status: 401 })
+    }
+    if (error instanceof PasswordChangeRequiredError) {
+      return NextResponse.json({ error: error.message }, { status: 403 })
+    }
     return NextResponse.json({ error: (error as Error).message }, { status: 400 })
   }
 }

@@ -40,7 +40,7 @@ interface PreviewTransaction {
   date: string
   description: string
   amount: number
-  category?: string
+  categoryName?: string
   account?: string
   status?: string
   type: TransactionType
@@ -369,7 +369,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
                       <div>
                         <p className="font-medium">{transaction.description}</p>
                         <p className="text-xs text-muted-foreground">
-                          {transaction.date} • {transaction.category ?? "Uncategorized"}
+                          {transaction.date} • {transaction.categoryName ?? "Uncategorized"}
                         </p>
                       </div>
                       <div className="text-right">

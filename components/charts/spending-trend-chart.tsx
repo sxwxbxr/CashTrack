@@ -2,17 +2,25 @@
 
 import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts"
 
-const data = [
-  { month: "Jan", income: 4000, expenses: 2400 },
-  { month: "Feb", income: 3000, expenses: 1398 },
-  { month: "Mar", income: 2000, expenses: 2800 },
-  { month: "Apr", income: 2780, expenses: 3908 },
-  { month: "May", income: 1890, expenses: 4800 },
-  { month: "Jun", income: 2390, expenses: 3800 },
-  { month: "Jul", income: 3490, expenses: 4300 },
-]
+interface SpendingTrendChartProps {
+  data: Array<{ month: string; income: number; expenses: number }>
+}
 
-export function SpendingTrendChart() {
+function formatCurrency(value: number) {
+  return Number(value).toLocaleString(undefined, { style: "currency", currency: "USD" })
+}
+
+export function SpendingTrendChart({ data }: SpendingTrendChartProps) {
+  const hasData = data.some((point) => point.income !== 0 || point.expenses !== 0)
+
+  if (!hasData) {
+    return (
+      <div className="flex h-[350px] items-center justify-center text-sm text-muted-foreground">
+        Add transactions to see your income and expense trends.
+      </div>
+    )
+  }
+
   return (
     <ResponsiveContainer width="100%" height={350}>
       <AreaChart data={data}>
@@ -32,24 +40,30 @@ export function SpendingTrendChart() {
           axisLine={false}
           tickLine={false}
           className="text-xs fill-muted-foreground"
-          tickFormatter={(value) => `$${value}`}
+          tickFormatter={(value) => formatCurrency(Number(value))}
         />
         <Tooltip
           content={({ active, payload, label }) => {
-            if (active && payload && payload.length) {
-              return (
-                <div className="rounded-lg border bg-background p-2 shadow-sm">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="flex flex-col">
-                      <span className="text-[0.70rem] uppercase text-muted-foreground">{label}</span>
-                      <span className="font-bold text-muted-foreground">Income: ${payload[0].value}</span>
-                      <span className="font-bold text-muted-foreground">Expenses: ${payload[1].value}</span>
-                    </div>
-                  </div>
-                </div>
-              )
+            if (!active || !payload?.length) {
+              return null
             }
-            return null
+
+            const incomePoint = payload.find((entry) => entry.dataKey === "income")
+            const expensePoint = payload.find((entry) => entry.dataKey === "expenses")
+
+            return (
+              <div className="rounded-lg border bg-background p-2 shadow-sm">
+                <div className="flex flex-col space-y-1">
+                  <span className="text-[0.70rem] uppercase text-muted-foreground">{label}</span>
+                  <span className="font-medium text-muted-foreground">
+                    Income: {formatCurrency(Number(incomePoint?.value ?? 0))}
+                  </span>
+                  <span className="font-medium text-muted-foreground">
+                    Expenses: {formatCurrency(Number(expensePoint?.value ?? 0))}
+                  </span>
+                </div>
+              </div>
+            )
           }}
         />
         <Area
