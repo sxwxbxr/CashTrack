@@ -1115,36 +1115,66 @@ export default function SettingsPage() {
   const backupHistory = settings?.backups.history ?? []
   const lastBackupAt = settings?.backups.lastBackupAt ?? null
 
-  const notificationToggles: { key: keyof SettingsData["notifications"]; title: string; description: string }[] = [
+  const notificationGroups: {
+    key: string
+    title: string
+    description: string
+    options: {
+      key: keyof SettingsData["notifications"]
+      title: string
+      description: string
+    }[]
+  }[] = [
     {
-      key: "budgetAlerts",
-      title: "Budget alerts",
-      description: "Get notified when you exceed category budgets.",
+      key: "spending-alerts",
+      title: "Spending alerts",
+      description: "Stay informed about budget performance and uncategorized activity.",
+      options: [
+        {
+          key: "budgetAlerts",
+          title: "Budget alerts",
+          description: "Get notified when you exceed category budgets.",
+        },
+        {
+          key: "transactionReminders",
+          title: "Transaction reminders",
+          description: "Reminders to categorize uncategorized transactions.",
+        },
+      ],
     },
     {
-      key: "weeklyReports",
-      title: "Weekly report",
-      description: "Receive a summary of your spending every Monday morning.",
+      key: "report-digests",
+      title: "Reports & digests",
+      description: "Periodic summaries that highlight trends in your finances.",
+      options: [
+        {
+          key: "weeklyReports",
+          title: "Weekly report",
+          description: "Receive a summary of your spending every Monday morning.",
+        },
+        {
+          key: "monthlyReports",
+          title: "Monthly report",
+          description: "Detailed breakdown delivered on the first business day of the month.",
+        },
+      ],
     },
     {
-      key: "monthlyReports",
-      title: "Monthly report",
-      description: "Detailed breakdown delivered on the first business day of the month.",
-    },
-    {
-      key: "transactionReminders",
-      title: "Transaction reminders",
-      description: "Reminders to categorize uncategorized transactions.",
-    },
-    {
-      key: "securityAlerts",
-      title: "Security alerts",
-      description: "Immediate alerts for suspicious sign-ins or failed sync attempts.",
-    },
-    {
-      key: "productUpdates",
-      title: "Product updates",
-      description: "Occasional announcements about new features and improvements.",
+      key: "product-security",
+      title: "Product & security",
+      description: "Critical updates that keep your account secure and in the loop.",
+      options: [
+        {
+          key: "securityAlerts",
+          title: "Security alerts",
+          description: "Immediate alerts for suspicious sign-ins or failed sync attempts.",
+        },
+        {
+          key: "productUpdates",
+          title: "Product updates",
+          description: "Occasional announcements about new features and improvements.",
+        },
+      ],
     },
   ]
 
