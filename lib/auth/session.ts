@@ -3,13 +3,31 @@ import type { IronSession, IronSessionOptions } from "iron-session"
 import { getIronSession } from "iron-session"
 
 const SESSION_COOKIE_NAME = "cashtrack-session"
+const DEV_SESSION_SECRET = "cashtrack-dev-secret-please-set-env"
+
+let cachedSessionSecret: string | undefined
 
 function getSessionSecret(): string {
-  const secret = process.env.CASHTRACK_SESSION_SECRET
-  if (!secret || secret.length < 16) {
-    throw new Error("CASHTRACK_SESSION_SECRET must be set to a secure value")
+  if (cachedSessionSecret) {
+    return cachedSessionSecret
   }
-  return secret
+
+  const secret = process.env.CASHTRACK_SESSION_SECRET
+  if (secret && secret.length >= 16) {
+    cachedSessionSecret = secret
+    return secret
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    console.warn(
+      "CASHTRACK_SESSION_SECRET is not set; falling back to an insecure development secret. " +
+        "Copy .env.example to .env.local and configure a long random value.",
+    )
+    cachedSessionSecret = DEV_SESSION_SECRET
+    return DEV_SESSION_SECRET
+  }
+
+  throw new Error("CASHTRACK_SESSION_SECRET must be set to a secure value")
 }
 
 export interface SessionUser {
