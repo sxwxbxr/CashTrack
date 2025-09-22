@@ -6,6 +6,7 @@ import { prepareStatement } from "./client"
 export type SyncEntityType =
   | "transaction"
   | "category"
+  | "account"
   | "automation_rule"
   | "user"
   | "setting"

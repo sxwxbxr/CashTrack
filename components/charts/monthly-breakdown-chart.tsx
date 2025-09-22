@@ -3,15 +3,9 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts"
 
 import { useTranslations } from "@/components/language-provider"
+import { DEFAULT_CHART_COLORS } from "@/lib/colors"
 
-const COLOR_PALETTE = [
-  "hsl(var(--chart-1))",
-  "hsl(var(--chart-2))",
-  "hsl(var(--chart-3))",
-  "hsl(var(--chart-4))",
-  "hsl(var(--chart-5))",
-  "hsl(var(--destructive))",
-]
+const COLOR_PALETTE = DEFAULT_CHART_COLORS
 
 const DEFAULT_DATA = [
   { name: "Bills & Utilities", value: 4350, color: COLOR_PALETTE[0] },

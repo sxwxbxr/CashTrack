@@ -3,6 +3,7 @@
 import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts"
 
 import { useTranslations } from "@/components/language-provider"
+import { DEFAULT_CHART_COLORS } from "@/lib/colors"
 
 interface SpendingTrendChartProps {
   data: Array<{ month: string; income: number; expenses: number }>
@@ -30,12 +31,12 @@ export function SpendingTrendChart({ data }: SpendingTrendChartProps) {
       <AreaChart data={data}>
         <defs>
           <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.8} />
-            <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0.1} />
+            <stop offset="5%" stopColor={DEFAULT_CHART_COLORS[0]} stopOpacity={0.8} />
+            <stop offset="95%" stopColor={DEFAULT_CHART_COLORS[0]} stopOpacity={0.1} />
           </linearGradient>
           <linearGradient id="colorExpenses" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="hsl(var(--chart-2))" stopOpacity={0.8} />
-            <stop offset="95%" stopColor="hsl(var(--chart-2))" stopOpacity={0.1} />
+            <stop offset="5%" stopColor={DEFAULT_CHART_COLORS[1]} stopOpacity={0.8} />
+            <stop offset="95%" stopColor={DEFAULT_CHART_COLORS[1]} stopOpacity={0.1} />
           </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -73,7 +74,7 @@ export function SpendingTrendChart({ data }: SpendingTrendChartProps) {
         <Area
           type="monotone"
           dataKey="income"
-          stroke="hsl(var(--chart-1))"
+          stroke={DEFAULT_CHART_COLORS[0]}
           fillOpacity={1}
           fill="url(#colorIncome)"
           strokeWidth={2}
@@ -81,7 +82,7 @@ export function SpendingTrendChart({ data }: SpendingTrendChartProps) {
         <Area
           type="monotone"
           dataKey="expenses"
-          stroke="hsl(var(--chart-2))"
+          stroke={DEFAULT_CHART_COLORS[1]}
           fillOpacity={1}
           fill="url(#colorExpenses)"
           strokeWidth={2}
