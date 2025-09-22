@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useTheme } from "next-themes"
 import { formatDistanceToNow } from "date-fns"
 import { toast } from "sonner"
 
@@ -40,6 +41,8 @@ export default function SettingsPage() {
   const [passwordLoading, setPasswordLoading] = useState(false)
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
+  const [themeReady, setThemeReady] = useState(false)
+  const { resolvedTheme, setTheme } = useTheme()
 
   useEffect(() => {
     let cancelled = false
@@ -80,6 +83,10 @@ export default function SettingsPage() {
     return () => {
       cancelled = true
     }
+  }, [])
+
+  useEffect(() => {
+    setThemeReady(true)
   }, [])
 
   const mutateSettings = async (patch: Partial<AppSettingsPayload>) => {
@@ -195,6 +202,7 @@ export default function SettingsPage() {
   }
 
   const backupFrequency: BackupFrequency = settings.autoBackupFrequency
+  const canToggleTheme = themeReady && typeof resolvedTheme === "string"
 
   return (
     <AppLayout
@@ -202,6 +210,32 @@ export default function SettingsPage() {
       description="Manage household access, backups, and LAN sync for CashTrack"
     >
       <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Appearance</CardTitle>
+            <CardDescription>Choose between the light and dark interface.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm font-medium" htmlFor="dark-mode-toggle">
+                Dark mode
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                Switch the dashboard to a darker color palette.
+              </p>
+            </div>
+            <Switch
+              id="dark-mode-toggle"
+              checked={canToggleTheme && resolvedTheme === "dark"}
+              disabled={!canToggleTheme}
+              onCheckedChange={(checked) => {
+                if (!canToggleTheme) return
+                setTheme(checked ? "dark" : "light")
+              }}
+              aria-label="Toggle dark mode"
+            />
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader>
             <CardTitle>Household Account</CardTitle>

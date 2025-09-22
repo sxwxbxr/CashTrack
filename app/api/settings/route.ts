@@ -19,7 +19,7 @@ type UpdatePayload = z.infer<typeof updateSchema>
 
 export async function GET() {
   try {
-    await requireSession()
+    await requireSession({ allowPasswordReset: true })
     const settings = await getAppSettings()
     return NextResponse.json({ settings })
   } catch (error) {

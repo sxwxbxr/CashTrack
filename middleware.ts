@@ -28,8 +28,21 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))
 }
 
-function isPasswordResetPath(pathname: string): boolean {
-  return pathname.startsWith("/api/users/change-password") || pathname === "/settings"
+function isPasswordResetPath(request: NextRequest): boolean {
+  const { pathname } = request.nextUrl
+  if (pathname === "/settings") {
+    return true
+  }
+  if (pathname.startsWith("/api/users/change-password")) {
+    return true
+  }
+  if (pathname === "/api/settings" && ["GET", "HEAD"].includes(request.method)) {
+    return true
+  }
+  if (pathname === "/api/auth/session" && ["GET", "HEAD"].includes(request.method)) {
+    return true
+  }
+  return false
 }
 
 export async function middleware(request: NextRequest) {
@@ -52,7 +65,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  if (session.user.mustChangePassword && !isPasswordResetPath(pathname)) {
+  if (session.user.mustChangePassword && !isPasswordResetPath(request)) {
     if (isApiRoute) {
       return NextResponse.json({ error: "Password change required" }, { status: 403 })
     }
