@@ -1,7 +1,15 @@
 import os from "os"
 
 import { listSettingRows, setSettingRow } from "@/lib/settings/repository"
-import type { AppSettings, AppSettingsPayload, BackupFrequency, UpdateSettingsInput } from "@/lib/settings/types"
+import type {
+  AppSettings,
+  AppSettingsPayload,
+  BackupFrequency,
+  CurrencyCode,
+  DateFormat,
+  UpdateSettingsInput,
+} from "@/lib/settings/types"
+import { DATE_FORMATS } from "@/lib/settings/types"
 import { withTransaction } from "@/lib/db"
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -11,6 +19,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   backupRetentionDays: 90,
   lastBackupAt: null,
   lastSuccessfulSyncAt: null,
+  currency: "USD",
+  dateFormat: "MM/DD/YYYY",
 }
 
 const SETTING_KEYS = {
@@ -20,6 +30,8 @@ const SETTING_KEYS = {
   backupRetentionDays: "backup.retentionDays",
   lastBackupAt: "backup.lastRunAt",
   lastSuccessfulSyncAt: "sync.lastSuccessfulAt",
+  currency: "general.currency",
+  dateFormat: "general.dateFormat",
 } as const
 
 type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS]
@@ -77,6 +89,26 @@ function ensureIsoString(value: SettingValue): string | null {
   return null
 }
 
+function ensureCurrency(value: SettingValue, fallback: CurrencyCode): CurrencyCode {
+  if (typeof value === "string") {
+    const normalized = value.trim().toUpperCase()
+    if (/^[A-Z]{3}$/.test(normalized)) {
+      return normalized
+    }
+  }
+  return fallback
+}
+
+function ensureDateFormat(value: SettingValue, fallback: DateFormat): DateFormat {
+  if (typeof value === "string") {
+    const normalized = value.trim() as DateFormat
+    if ((DATE_FORMATS as readonly string[]).includes(normalized)) {
+      return normalized
+    }
+  }
+  return fallback
+}
+
 function getLocalIpAddress(): string {
   const interfaces = os.networkInterfaces()
   for (const entries of Object.values(interfaces)) {
@@ -117,6 +149,8 @@ function mapSettings(rows: Awaited<ReturnType<typeof listSettingRows>>): Record<
     [SETTING_KEYS.lastBackupAt]: map.get(SETTING_KEYS.lastBackupAt) ?? DEFAULT_SETTINGS.lastBackupAt,
     [SETTING_KEYS.lastSuccessfulSyncAt]:
       map.get(SETTING_KEYS.lastSuccessfulSyncAt) ?? DEFAULT_SETTINGS.lastSuccessfulSyncAt,
+    [SETTING_KEYS.currency]: map.get(SETTING_KEYS.currency) ?? DEFAULT_SETTINGS.currency,
+    [SETTING_KEYS.dateFormat]: map.get(SETTING_KEYS.dateFormat) ?? DEFAULT_SETTINGS.dateFormat,
   } as Record<SettingKey, SettingValue>
 }
 
@@ -139,6 +173,8 @@ export async function getAppSettings(): Promise<AppSettingsPayload> {
     ),
     lastBackupAt: ensureIsoString(mapped[SETTING_KEYS.lastBackupAt]),
     lastSuccessfulSyncAt: ensureIsoString(mapped[SETTING_KEYS.lastSuccessfulSyncAt]),
+    currency: ensureCurrency(mapped[SETTING_KEYS.currency], DEFAULT_SETTINGS.currency),
+    dateFormat: ensureDateFormat(mapped[SETTING_KEYS.dateFormat], DEFAULT_SETTINGS.dateFormat),
   }
 
   return { ...settings, syncHost: resolveSyncHost() }
@@ -170,6 +206,13 @@ export async function updateAppSettings(update: UpdateSettingsInput): Promise<Ap
         db,
         updatedAt: update.lastSuccessfulSyncAt ?? undefined,
       })
+    }
+    if (update.currency !== undefined) {
+      const value = update.currency.trim().toUpperCase()
+      await setSettingRow(SETTING_KEYS.currency, value, { db })
+    }
+    if (update.dateFormat) {
+      await setSettingRow(SETTING_KEYS.dateFormat, update.dateFormat, { db })
     }
   })
 

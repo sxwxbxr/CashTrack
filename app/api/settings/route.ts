@@ -2,9 +2,19 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 
 import { getAppSettings, updateAppSettings } from "@/lib/settings/service"
+import { DATE_FORMATS } from "@/lib/settings/types"
 import { AuthenticationError, PasswordChangeRequiredError, requireSession } from "@/lib/auth/session"
 
 const backupFrequencyEnum = z.enum(["off", "daily", "weekly", "monthly"])
+const dateFormatEnum = z.enum(DATE_FORMATS)
+
+const currencySchema = z
+  .string()
+  .trim()
+  .min(3)
+  .max(3)
+  .regex(/^[A-Za-z]{3}$/)
+  .transform((value) => value.toUpperCase())
 
 const updateSchema = z
   .object({
@@ -12,6 +22,8 @@ const updateSchema = z
     allowAutomaticBackups: z.boolean().optional(),
     autoBackupFrequency: backupFrequencyEnum.optional(),
     backupRetentionDays: z.coerce.number().int().min(7).max(365).optional(),
+    currency: currencySchema.optional(),
+    dateFormat: dateFormatEnum.optional(),
   })
   .strict()
 

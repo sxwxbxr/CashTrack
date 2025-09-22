@@ -1,8 +1,10 @@
 "use client"
 
+import { useMemo } from "react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts"
 
 import { useTranslations } from "@/components/language-provider"
+import { useAppSettings } from "@/components/settings-provider"
 
 const DEFAULT_DATA = [
   { month: "Jul", income: 4200, expenses: 2325 },
@@ -17,12 +19,17 @@ interface IncomeExpenseChartProps {
   data?: Array<{ month: string; income: number; expenses: number }>
 }
 
-function formatCurrency(value: number) {
-  return Number(value).toLocaleString(undefined, { style: "currency", currency: "USD" })
-}
-
 export function IncomeExpenseChart({ data }: IncomeExpenseChartProps) {
   const { t } = useTranslations()
+  const { settings } = useAppSettings()
+  const currencyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: settings?.currency ?? "USD",
+      }),
+    [settings?.currency],
+  )
   const usingFallback = !data
   const chartData = usingFallback ? DEFAULT_DATA : data
   const hasData = chartData.some((point) => point.income !== 0 || point.expenses !== 0)
@@ -45,7 +52,7 @@ export function IncomeExpenseChart({ data }: IncomeExpenseChartProps) {
           axisLine={false}
           tickLine={false}
           tick={axisTickStyle}
-          tickFormatter={(value) => formatCurrency(Number(value))}
+          tickFormatter={(value) => currencyFormatter.format(Number(value))}
         />
         <Tooltip
           content={({ active, payload, label }) => {
@@ -66,14 +73,14 @@ export function IncomeExpenseChart({ data }: IncomeExpenseChartProps) {
                         <span className="text-sm" style={{ color: entry.color }}>
                           {`${t(entry.name ?? "")}:`}
                         </span>
-                        <span className="font-bold">{formatCurrency(Number(entry.value ?? 0))}</span>
+                        <span className="font-bold">{currencyFormatter.format(Number(entry.value ?? 0))}</span>
                       </div>
                     ))}
                     {typeof net === "number" && (
                       <div className="flex items-center justify-between gap-2 border-t pt-2">
                         <span className="text-sm font-medium">{t("Net:")}</span>
                         <span className={net >= 0 ? "font-bold text-green-600" : "font-bold text-red-600"}>
-                          {formatCurrency(net)}
+                          {currencyFormatter.format(net)}
                         </span>
                       </div>
                     )}

@@ -144,6 +144,17 @@ export async function listUsers(db?: Database): Promise<User[]> {
   return rows.map(mapRow)
 }
 
+export async function deleteUser(id: string, db?: Database): Promise<boolean> {
+  const connection = await resolveDatabase(db)
+  const result = connection.prepare("DELETE FROM users WHERE id = ?").run(id)
+  if (result.changes > 0) {
+    const deletedAt = new Date().toISOString()
+    recordSyncLog(connection, "user", id, deletedAt)
+    return true
+  }
+  return false
+}
+
 export async function bulkUpsertUsers(records: CreateUserRecord[], db?: Database): Promise<User[]> {
   if (records.length === 0) {
     return []

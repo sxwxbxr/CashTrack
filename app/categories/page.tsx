@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Edit, Loader2, Plus, Search, Target, Trash2, Zap } from "lucide-react"
 import { useTranslations } from "@/components/language-provider"
+import { useAppSettings } from "@/components/settings-provider"
 
 interface Category {
   id: string
@@ -39,10 +40,6 @@ interface Rule {
   matchCount: number
 }
 
-function formatCurrency(value: number) {
-  return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
-
 function sortCategories(list: Category[]) {
   return [...list].sort((a, b) => a.name.localeCompare(b.name))
 }
@@ -58,6 +55,19 @@ function sortRules(list: Rule[]) {
 
 export default function CategoriesPage() {
   const { t } = useTranslations()
+  const { settings } = useAppSettings()
+  const currencyCode = settings?.currency ?? "USD"
+  const currencyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: currencyCode,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
+    [currencyCode],
+  )
+  const formatCurrency = useCallback((value: number) => currencyFormatter.format(value), [currencyFormatter])
   const matchTypeLabels = useMemo<Record<RuleMatchType, string>>(
     () => ({
       contains: t("Contains"),

@@ -1,8 +1,10 @@
 "use client"
 
+import { useMemo } from "react"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts"
 
 import { useTranslations } from "@/components/language-provider"
+import { useAppSettings } from "@/components/settings-provider"
 
 const COLOR_PALETTE = [
   "hsl(var(--chart-1))",
@@ -18,12 +20,17 @@ interface CategoryTrendChartProps {
   series: Array<{ key: string; label: string }>
 }
 
-function formatCurrency(value: number) {
-  return Number(value).toLocaleString(undefined, { style: "currency", currency: "USD" })
-}
-
 export function CategoryTrendChart({ data, series }: CategoryTrendChartProps) {
   const { t } = useTranslations()
+  const { settings } = useAppSettings()
+  const currencyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: settings?.currency ?? "USD",
+      }),
+    [settings?.currency],
+  )
   const axisTickStyle = { fill: "hsl(var(--muted-foreground))", fontSize: 12 }
   if (!series.length) {
     return (
@@ -54,7 +61,7 @@ export function CategoryTrendChart({ data, series }: CategoryTrendChartProps) {
           axisLine={false}
           tickLine={false}
           tick={axisTickStyle}
-          tickFormatter={(value) => formatCurrency(Number(value))}
+          tickFormatter={(value) => currencyFormatter.format(Number(value))}
         />
         <Tooltip
           content={({ active, payload, label }) => {
@@ -68,7 +75,7 @@ export function CategoryTrendChart({ data, series }: CategoryTrendChartProps) {
                         <span className="text-sm" style={{ color: entry.color }}>
                           {`${entry.name}:`}
                         </span>
-                        <span className="font-bold">{formatCurrency(Number(entry.value ?? 0))}</span>
+                        <span className="font-bold">{currencyFormatter.format(Number(entry.value ?? 0))}</span>
                       </div>
                     ))}
                   </div>

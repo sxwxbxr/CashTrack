@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import {
   AlertTriangle,
@@ -33,6 +33,8 @@ import { IncomeExpenseChart } from "@/components/charts/income-expense-chart"
 import { YearlyComparisonChart } from "@/components/charts/yearly-comparison-chart"
 import { cn } from "@/lib/utils"
 import type { ReportAnalytics, ReportPeriodKey } from "@/lib/reports/analytics"
+import { useAppSettings } from "@/components/settings-provider"
+import { formatDateRange as formatDateRangeWithPattern } from "@/lib/formatting/dates"
 
 const PERIOD_OPTIONS: Array<{ label: string; value: ReportPeriodKey }> = [
   { label: "Last 3 Months", value: "last-3-months" },
@@ -41,19 +43,7 @@ const PERIOD_OPTIONS: Array<{ label: string; value: ReportPeriodKey }> = [
   { label: "Current Year", value: "current-year" },
 ]
 
-const currencyFormatter = new Intl.NumberFormat(undefined, {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 0,
-})
-
 const integerFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 })
-
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-})
 
 interface SummaryConfig {
   icon: LucideIcon
@@ -79,10 +69,6 @@ const INSIGHT_ICONS = {
   info: Info,
 } as const
 
-function formatCurrency(value: number) {
-  return currencyFormatter.format(Number.isFinite(value) ? value : 0)
-}
-
 function formatChange(value: number | null, preferLower = false) {
   if (value === null || Number.isNaN(value)) {
     return { label: "No comparison", display: "—", className: "text-muted-foreground" }
@@ -107,17 +93,6 @@ function parseIsoDate(value: string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-function formatDateRange(start: string, end: string) {
-  const startDate = parseIsoDate(start)
-  const endDate = parseIsoDate(end)
-  if (!startDate || !endDate) {
-    return `${start} – ${end}`
-  }
-
-  const inclusiveEnd = new Date(endDate.getTime() - 86_400_000)
-  return `${dateFormatter.format(startDate)} – ${dateFormatter.format(inclusiveEnd)}`
-}
-
 interface ReportsResponse {
   report?: ReportAnalytics
   error?: unknown
@@ -129,6 +104,29 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
+  const { settings } = useAppSettings()
+  const currencyCode = settings?.currency ?? "USD"
+  const dateFormat = settings?.dateFormat ?? "MM/DD/YYYY"
+
+  const currencyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: currencyCode,
+        minimumFractionDigits: 0,
+      }),
+    [currencyCode],
+  )
+
+  const formatCurrency = useCallback(
+    (value: number) => currencyFormatter.format(Number.isFinite(value) ? value : 0),
+    [currencyFormatter],
+  )
+
+  const formatDateRange = useCallback(
+    (start: string, end: string) => formatDateRangeWithPattern(start, end, dateFormat),
+    [dateFormat],
+  )
 
   useEffect(() => {
     const controller = new AbortController()

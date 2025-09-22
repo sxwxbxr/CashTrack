@@ -14,6 +14,8 @@ import { TransactionFormDialog, type TransactionFormValues } from "@/components/
 import type { TransactionStatus, TransactionType } from "@/lib/transactions/types"
 import { toast } from "sonner"
 import { useTranslations } from "@/components/language-provider"
+import { useAppSettings } from "@/components/settings-provider"
+import { formatDateWithPattern } from "@/lib/formatting/dates"
 
 interface Transaction {
   id: string
@@ -49,7 +51,19 @@ interface CategoryOption {
 const DEFAULT_CATEGORY_FILTER = "all"
 
 export default function TransactionsPage() {
-  const { t } = useTranslations()
+  const { t, language } = useTranslations()
+  const { settings } = useAppSettings()
+  const currencyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: settings?.currency ?? "USD",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
+    [settings?.currency],
+  )
+  const dateFormat = settings?.dateFormat ?? "MM/DD/YYYY"
   const [searchTerm, setSearchTerm] = useState("")
   const [categoryFilter, setCategoryFilter] = useState<string>(DEFAULT_CATEGORY_FILTER)
   const [sortField, setSortField] = useState<"date" | "amount" | "description">("date")
@@ -297,7 +311,9 @@ export default function TransactionsPage() {
 
     return transactions.map((transaction) => (
       <TableRow key={transaction.id}>
-        <TableCell className="font-medium">{new Date(transaction.date).toLocaleDateString()}</TableCell>
+        <TableCell className="font-medium">
+          {formatDateWithPattern(transaction.date, dateFormat, language)}
+        </TableCell>
         <TableCell>
           <div className="max-w-[300px]">
             <p className="truncate font-medium">{transaction.description}</p>
@@ -310,7 +326,8 @@ export default function TransactionsPage() {
         <TableCell className="text-muted-foreground">{transaction.account}</TableCell>
         <TableCell>
           <span className={`font-medium ${transaction.amount > 0 ? "text-green-600" : "text-red-600"}`}>
-            {transaction.amount > 0 ? "+" : "-"}${Math.abs(transaction.amount).toFixed(2)}
+            {transaction.amount > 0 ? "+" : "-"}
+            {currencyFormatter.format(Math.abs(transaction.amount))}
           </span>
         </TableCell>
         <TableCell>
@@ -395,8 +412,8 @@ export default function TransactionsPage() {
                   values: {
                     visible: transactions.length.toString(),
                     total: totalCount.toString(),
-                    income: `$${totals.income.toFixed(2)}`,
-                    expenses: `-$${totals.expenses.toFixed(2)}`,
+                    income: currencyFormatter.format(totals.income),
+                    expenses: `-${currencyFormatter.format(totals.expenses)}`,
                   },
                 },
               )}

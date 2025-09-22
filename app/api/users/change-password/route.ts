@@ -4,6 +4,7 @@ import { z } from "zod"
 import { hashPassword, verifyPassword } from "@/lib/auth/passwords"
 import { requireSession } from "@/lib/auth/session"
 import { getUserById, updateUserPassword } from "@/lib/users/repository"
+import { recordUserAction } from "@/lib/activity/service"
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
@@ -42,6 +43,11 @@ export async function POST(request: Request) {
       mustChangePassword: updated.mustChangePassword,
     }
     await session.save()
+
+    await recordUserAction(session.user, "user.update", "user", updated.id, {
+      username: updated.username,
+      mustChangePassword: updated.mustChangePassword,
+    })
 
     return NextResponse.json({ success: true })
   } catch (error) {

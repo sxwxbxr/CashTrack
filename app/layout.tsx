@@ -8,7 +8,9 @@ import { ThemeProvider } from "@/components/theme-provider"
 import ServiceWorkerRegistration from "@/components/service-worker-registration"
 import { Toaster } from "@/components/ui/sonner"
 import { LanguageProvider } from "@/components/language-provider"
+import { SettingsProvider } from "@/components/settings-provider"
 import { getUserLanguage } from "@/lib/i18n/server"
+import { getAppSettings } from "@/lib/settings/service"
 import "./globals.css"
 
 export const metadata: Metadata = {
@@ -17,24 +19,27 @@ export const metadata: Metadata = {
   generator: "v0.app",
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
   const language = getUserLanguage()
+  const initialSettings = await getAppSettings()
 
   return (
     <html lang={language} suppressHydrationWarning>
       <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
         <LanguageProvider initialLanguage={language}>
-          <Suspense fallback={null}>
-            <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-              {children}
-              <Toaster richColors position="top-right" />
-              <ServiceWorkerRegistration />
-            </ThemeProvider>
-          </Suspense>
+          <SettingsProvider initialSettings={initialSettings}>
+            <Suspense fallback={null}>
+              <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+                {children}
+                <Toaster richColors position="top-right" />
+                <ServiceWorkerRegistration />
+              </ThemeProvider>
+            </Suspense>
+          </SettingsProvider>
         </LanguageProvider>
       </body>
     </html>

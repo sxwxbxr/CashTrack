@@ -4,27 +4,19 @@ import { z } from "zod"
 
 import { hashPassword } from "@/lib/auth/passwords"
 import { AuthenticationError, PasswordChangeRequiredError, requireSession } from "@/lib/auth/session"
-import { insertUser, listUsers } from "@/lib/users/repository"
+import { getUserByUsername, insertUser, listUsers } from "@/lib/users/repository"
 import { recordUserAction } from "@/lib/activity/service"
+import { sanitizeUser } from "@/lib/users/serialization"
 
 const createSchema = z.object({
   username: z
     .string()
+    .trim()
     .min(3, "Username must be at least 3 characters")
     .regex(/^[a-zA-Z0-9._-]+$/, "Use letters, numbers, dots, underscores, or dashes"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   mustChangePassword: z.boolean().optional().default(true),
 })
-
-function sanitizeUser(user: { id: string; username: string; mustChangePassword: boolean; createdAt: string; updatedAt: string }) {
-  return {
-    id: user.id,
-    username: user.username,
-    mustChangePassword: user.mustChangePassword,
-    createdAt: user.createdAt,
-    updatedAt: user.updatedAt,
-  }
-}
 
 export async function GET(_request: NextRequest) {
   try {
@@ -57,6 +49,11 @@ export async function POST(request: NextRequest) {
     const parsed = createSchema.safeParse(payload)
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
+    }
+
+    const existing = await getUserByUsername(parsed.data.username)
+    if (existing) {
+      return NextResponse.json({ error: "Username already exists" }, { status: 409 })
     }
 
     const passwordHash = await hashPassword(parsed.data.password)

@@ -1,5 +1,11 @@
 export type BackupFrequency = "off" | "daily" | "weekly" | "monthly"
 
+export const DATE_FORMATS = ["MM/DD/YYYY", "DD/MM/YYYY", "YYYY-MM-DD", "DD MMM YYYY", "MMM DD, YYYY"] as const
+
+export type DateFormat = (typeof DATE_FORMATS)[number]
+
+export type CurrencyCode = string
+
 export interface AppSettings {
   /** Whether LAN sync endpoints should accept authenticated requests from the household */
   allowLanSync: boolean
@@ -13,6 +19,10 @@ export interface AppSettings {
   lastBackupAt: string | null
   /** Timestamp of the most recent successful pull/push sync */
   lastSuccessfulSyncAt: string | null
+  /** Three-letter ISO currency code used across the UI */
+  currency: CurrencyCode
+  /** Preferred format for displaying calendar dates */
+  dateFormat: DateFormat
 }
 
 export interface AppSettingsPayload extends AppSettings {
@@ -27,4 +37,6 @@ export type UpdateSettingsInput = Partial<{
   backupRetentionDays: number
   lastBackupAt: string | null
   lastSuccessfulSyncAt: string | null
+  currency: CurrencyCode
+  dateFormat: DateFormat
 }>

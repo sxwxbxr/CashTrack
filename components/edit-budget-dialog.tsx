@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useTranslations } from "@/components/language-provider"
+import { useAppSettings } from "@/components/settings-provider"
 
 interface CategorySummary {
   id: string
@@ -33,6 +34,17 @@ export function EditBudgetDialog({ open, onOpenChange, category, onSubmit }: Edi
   const [budget, setBudget] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const { settings } = useAppSettings()
+  const currencyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: settings?.currency ?? "USD",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
+    [settings?.currency],
+  )
 
   useEffect(() => {
     if (open && category) {
@@ -69,7 +81,7 @@ export function EditBudgetDialog({ open, onOpenChange, category, onSubmit }: Edi
     category && budget && Number.parseFloat(budget) > 0
       ? (category.spent / Number.parseFloat(budget)) * 100
       : null
-  const formattedSpent = category ? `$${category.spent.toFixed(2)}` : "$0.00"
+  const formattedSpent = category ? currencyFormatter.format(category.spent) : currencyFormatter.format(0)
   const formattedUtilization =
     utilization !== null && Number.isFinite(utilization) ? Math.min(utilization, 999).toFixed(1) : null
 
