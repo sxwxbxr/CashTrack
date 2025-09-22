@@ -1,6 +1,8 @@
 import { initDatabase, getDatabase } from "@/lib/db"
 import type Database from "better-sqlite3"
 
+import { tailwindBgClassToHex } from "@/lib/colors"
+
 export type ReportPeriodKey = "last-3-months" | "last-6-months" | "last-12-months" | "current-year"
 
 interface CategoryRow {
@@ -41,6 +43,18 @@ interface YearlySpendRow {
   expenses: number
 }
 
+interface AccountRow {
+  id: string
+  name: string
+}
+
+interface AccountActivityRow {
+  name: string
+  inflow: number
+  outflow: number
+  transactions: number
+}
+
 export interface SummaryMetric {
   label: string
   value: number
@@ -57,6 +71,7 @@ export interface CategoryPerformance {
   change: number | null
   transactions: number
   colorClass: string
+  colorHex: string
 }
 
 export interface ChartPoint {
@@ -68,6 +83,16 @@ export interface ChartPoint {
 export interface ChartSeries {
   key: string
   label: string
+  color?: string
+}
+
+export interface AccountSummary {
+  id: string
+  name: string
+  inflow: number
+  outflow: number
+  net: number
+  transactions: number
 }
 
 export interface ReportAnalytics {
@@ -83,6 +108,7 @@ export interface ReportAnalytics {
   categoryTrend: { data: Array<{ month: string; [key: string]: number }>; series: ChartSeries[] }
   yearlyComparison: Array<{ month: string; current: number; previous: number }>
   insights: Array<{ variant: "positive" | "warning" | "info"; title: string; description: string }>
+  accounts: AccountSummary[]
 }
 
 const databaseReady = initDatabase()
@@ -302,6 +328,7 @@ export async function getReportAnalytics(period: ReportPeriodKey): Promise<Repor
     const monthlyBudget = Number(base?.monthlyBudget ?? 0)
     const budget = monthlyBudget * (monthsInPeriod > 0 ? monthsInPeriod : 1)
     const colorClass = normalizeCategoryColor(base?.color)
+    const colorHex = tailwindBgClassToHex(colorClass)
     const change = calculateChange(spent, previousSpent)
 
     categoryPerformances.push({
@@ -312,6 +339,7 @@ export async function getReportAnalytics(period: ReportPeriodKey): Promise<Repor
       change,
       transactions,
       colorClass,
+      colorHex,
     })
   })
 
@@ -370,6 +398,7 @@ export async function getReportAnalytics(period: ReportPeriodKey): Promise<Repor
   const trendSeries: ChartSeries[] = categoryPerformances.slice(0, 5).map((category) => ({
     key: getCategoryKey(category.id === category.name ? null : category.id, category.name),
     label: category.name,
+    color: category.colorHex,
   }))
 
   const trendData = monthKeys.map((key) => {
@@ -386,7 +415,11 @@ export async function getReportAnalytics(period: ReportPeriodKey): Promise<Repor
   const monthlyBreakdown = categoryPerformances
     .filter((category) => category.spent > 0)
     .slice(0, CHART_COLORS.length)
-    .map((category, index) => ({ name: category.name, value: category.spent, color: CHART_COLORS[index % CHART_COLORS.length] }))
+    .map((category, index) => ({
+      name: category.name,
+      value: category.spent,
+      color: category.colorHex || CHART_COLORS[index % CHART_COLORS.length],
+    }))
 
   const currentYearStart = new Date(start.getFullYear(), 0, 1)
   const nextYearStart = new Date(start.getFullYear() + 1, 0, 1)
@@ -436,6 +469,67 @@ export async function getReportAnalytics(period: ReportPeriodKey): Promise<Repor
     })
   }
 
+  const accountRows = db
+    .prepare("SELECT id, name FROM accounts ORDER BY name COLLATE NOCASE")
+    .all() as AccountRow[]
+
+  const activityRows = db
+    .prepare(
+      `SELECT
+         account AS name,
+         SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS inflow,
+         SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) AS outflow,
+         COUNT(id) AS transactions
+       FROM transactions
+       WHERE date >= @start AND date < @end
+       GROUP BY account`
+    )
+    .all({ start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) }) as AccountActivityRow[]
+
+  const accountMap = new Map<string, { id: string; name: string; inflow: number; outflow: number; transactions: number }>()
+
+  accountRows.forEach((account) => {
+    const key = account.name.toLowerCase()
+    accountMap.set(key, { id: account.id, name: account.name, inflow: 0, outflow: 0, transactions: 0 })
+  })
+
+  activityRows.forEach((row) => {
+    const name = (row.name ?? "Unspecified").trim() || "Unspecified"
+    const key = name.toLowerCase()
+    const inflow = Number(row.inflow ?? 0)
+    const outflow = Number(row.outflow ?? 0)
+    const transactions = Number(row.transactions ?? 0)
+    const existing = accountMap.get(key)
+
+    if (existing) {
+      existing.inflow = inflow
+      existing.outflow = outflow
+      existing.transactions = transactions
+    } else {
+      accountMap.set(key, {
+        id: `account:${key}`,
+        name,
+        inflow,
+        outflow,
+        transactions,
+      })
+    }
+  })
+
+  const accounts: AccountSummary[] = Array.from(accountMap.values()).map((entry) => ({
+    ...entry,
+    net: entry.inflow - entry.outflow,
+  }))
+
+  accounts.sort((a, b) => {
+    const activityA = a.inflow + a.outflow
+    const activityB = b.inflow + b.outflow
+    if (activityA === activityB) {
+      return a.name.localeCompare(b.name)
+    }
+    return activityB - activityA
+  })
+
   const overBudget = categoryPerformances.filter((category) => category.budget > 0 && category.spent > category.budget)
 
   const insights: Array<{ variant: "positive" | "warning" | "info"; title: string; description: string }> = []
@@ -481,5 +575,6 @@ export async function getReportAnalytics(period: ReportPeriodKey): Promise<Repor
     categoryTrend: { data: trendData, series: trendSeries },
     yearlyComparison,
     insights,
+    accounts,
   }
 }

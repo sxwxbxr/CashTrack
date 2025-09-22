@@ -84,10 +84,15 @@ export function CategoryTrendChart({ data, series }: CategoryTrendChartProps) {
             key={item.key}
             type="monotone"
             dataKey={item.key}
-            stroke={COLOR_PALETTE[index % COLOR_PALETTE.length]}
+            stroke={item.color ?? COLOR_PALETTE[index % COLOR_PALETTE.length]}
             strokeWidth={2}
             name={item.label}
-            dot={{ r: 3 }}
+            dot={{
+              r: 3,
+              stroke: item.color ?? COLOR_PALETTE[index % COLOR_PALETTE.length],
+              strokeWidth: 2,
+              fill: item.color ?? COLOR_PALETTE[index % COLOR_PALETTE.length],
+            }}
             isAnimationActive={false}
           />
         ))}

@@ -2,6 +2,7 @@ import { randomUUID } from "crypto"
 import type Database from "better-sqlite3"
 
 import { initDatabase, withTransaction } from "@/lib/db"
+import { ensureAccountExists } from "@/lib/accounts/service"
 import { createAutomationRuleEvaluator } from "@/lib/categories/rule-matcher"
 import { listAutomationRules } from "@/lib/categories/rule-repository"
 import { getCategoryById, getCategoryByName, listCategories } from "@/lib/categories/repository"
@@ -237,6 +238,7 @@ async function prepareTransactionRecord(
   const baseCategory = await resolveCategoryReference(input.categoryId ?? null, input.categoryName, db)
   const matched = evaluator(input.description)
   const finalCategory = matched ?? baseCategory
+  const account = await ensureAccountExists(input.account, db)
 
   return {
     id: `txn_${randomUUID()}`,
@@ -245,7 +247,7 @@ async function prepareTransactionRecord(
     categoryId: finalCategory.categoryId,
     categoryName: finalCategory.categoryName,
     amount,
-    account: input.account,
+    account: account.name,
     status,
     type,
     notes,
@@ -286,6 +288,11 @@ export async function updateTransaction(id: string, updates: UpdateTransactionIn
     )
     const matched = evaluator(updates.description ?? existing.description)
     const finalCategory = matched ?? baseCategory
+    let resolvedAccount = existing.account
+    if (typeof updates.account === "string") {
+      const ensuredAccount = await ensureAccountExists(updates.account, db)
+      resolvedAccount = ensuredAccount.name
+    }
 
     const updated = await updateTransactionRecord(
       id,
@@ -295,7 +302,7 @@ export async function updateTransaction(id: string, updates: UpdateTransactionIn
         categoryId: finalCategory.categoryId,
         categoryName: finalCategory.categoryName,
         amount,
-        account: updates.account ?? existing.account,
+        account: resolvedAccount,
         status,
         type,
         notes,
@@ -499,13 +506,24 @@ export async function importTransactions(transactionsToImport: ParsedCsvTransact
   )
 
   const evaluator = await getAutomationEvaluator()
+  const accountCache = new Map<string, string>()
 
   const newRecords: CreateTransactionRecord[] = []
 
   for (const entry of transactionsToImport) {
     const type = resolveType(entry.type)
     const amount = applyAmount(entry.amount, type)
-    const account = entry.account || "Checking"
+    const rawAccount = (entry.account ?? "Checking").trim()
+    const candidateAccount = rawAccount || "Checking"
+    const candidateKey = candidateAccount.toLowerCase()
+    let ensuredAccount = accountCache.get(candidateKey)
+    if (!ensuredAccount) {
+      const ensured = await ensureAccountExists(candidateAccount)
+      ensuredAccount = ensured.name
+      accountCache.set(candidateKey, ensuredAccount)
+      accountCache.set(ensuredAccount.toLowerCase(), ensuredAccount)
+    }
+    const account = ensuredAccount
     const status = resolveStatus(entry.status)
     const key = [entry.date, entry.description.toLowerCase(), amount, account.toLowerCase()].join("|")
     if (existingKeys.has(key)) {

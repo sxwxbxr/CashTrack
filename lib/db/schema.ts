@@ -21,6 +21,15 @@ export const CREATE_CATEGORIES_TABLE = `
   )
 `
 
+export const CREATE_ACCOUNTS_TABLE = `
+  CREATE TABLE IF NOT EXISTS accounts (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL
+  )
+`
+
 export const CREATE_TRANSACTIONS_TABLE = `
   CREATE TABLE IF NOT EXISTS transactions (
     id TEXT PRIMARY KEY,

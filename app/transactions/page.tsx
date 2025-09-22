@@ -46,6 +46,11 @@ interface CategoryOption {
   color: string
 }
 
+interface AccountOption {
+  id: string
+  name: string
+}
+
 const DEFAULT_CATEGORY_FILTER = "all"
 
 export default function TransactionsPage() {
@@ -64,6 +69,7 @@ export default function TransactionsPage() {
   const [formMode, setFormMode] = useState<"create" | "edit">("create")
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
   const [categories, setCategories] = useState<CategoryOption[]>([])
+  const [accounts, setAccounts] = useState<AccountOption[]>([])
   const statusLabels = useMemo(
     () => ({
       pending: t("Pending"),
@@ -88,6 +94,26 @@ export default function TransactionsPage() {
     } catch (loadError) {
       console.error(loadError)
       toast.error(t("Unable to load categories"), {
+        description: loadError instanceof Error ? loadError.message : undefined,
+      })
+    }
+  }, [t])
+
+  const loadAccounts = useCallback(async () => {
+    try {
+      const response = await fetch("/api/accounts", { cache: "no-store" })
+      if (!response.ok) {
+        throw new Error(t("Failed to load accounts"))
+      }
+
+      const data = (await response.json()) as { accounts: Array<{ id: string; name: string }> }
+      const sorted = data.accounts
+        .map((account) => ({ id: account.id, name: account.name }))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+      setAccounts(sorted)
+    } catch (loadError) {
+      console.error(loadError)
+      toast.error(t("Unable to load accounts"), {
         description: loadError instanceof Error ? loadError.message : undefined,
       })
     }
@@ -132,7 +158,8 @@ export default function TransactionsPage() {
 
   useEffect(() => {
     loadCategories()
-  }, [loadCategories])
+    loadAccounts()
+  }, [loadCategories, loadAccounts])
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -213,6 +240,38 @@ export default function TransactionsPage() {
 
     await fetchTransactions()
   }
+
+  const handleCreateAccount = useCallback(
+    async (name: string) => {
+      const response = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      })
+
+      const body = (await response.json().catch(() => ({}))) as {
+        account?: { id: string; name: string }
+        error?: unknown
+      }
+
+      if (!response.ok || !body.account) {
+        const message = typeof body.error === "string" ? body.error : t("Unable to create account")
+        toast.error(t("Unable to create account"), { description: message })
+        throw new Error(message)
+      }
+
+      const account = { id: body.account.id, name: body.account.name }
+      setAccounts((previous) => {
+        const next = previous.filter((item) => item.id !== account.id)
+        next.push(account)
+        next.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+        return next
+      })
+      toast.success(t("Account created"), { description: account.name })
+      return account
+    },
+    [t],
+  )
 
   const handleDelete = async (transaction: Transaction) => {
     const confirmed = window.confirm(t("Delete this transaction?"))
@@ -450,6 +509,8 @@ export default function TransactionsPage() {
         onSubmit={handleFormSubmit}
         initialValues={selectedTransactionValues}
         categories={categories.map(({ id, name }) => ({ id, name }))}
+        accounts={accounts}
+        onCreateAccount={handleCreateAccount}
       />
     </AppLayout>
   )

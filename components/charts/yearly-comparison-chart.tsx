@@ -4,6 +4,9 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 
 import { useTranslations } from "@/components/language-provider"
 
+const CURRENT_YEAR_COLOR = "hsl(var(--primary))"
+const PREVIOUS_YEAR_COLOR = "hsl(var(--chart-5))"
+
 const DEFAULT_DATA = [
   { month: "Jan", previous: 2400, current: 2200 },
   { month: "Feb", previous: 2100, current: 2400 },
@@ -84,8 +87,8 @@ export function YearlyComparisonChart({
           }}
         />
         <Legend formatter={(value: string) => <span style={{ color: "hsl(var(--muted-foreground))" }}>{t(value)}</span>} />
-        <Bar dataKey="previous" fill="hsl(var(--chart-2))" name={resolvedPreviousLabel} radius={[4, 4, 0, 0]} />
-        <Bar dataKey="current" fill="hsl(var(--chart-1))" name={resolvedCurrentLabel} radius={[4, 4, 0, 0]} />
+        <Bar dataKey="previous" fill={PREVIOUS_YEAR_COLOR} name={resolvedPreviousLabel} radius={[4, 4, 0, 0]} />
+        <Bar dataKey="current" fill={CURRENT_YEAR_COLOR} name={resolvedCurrentLabel} radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   )

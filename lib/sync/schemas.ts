@@ -25,6 +25,13 @@ export const categorySchema = z.object({
   updatedAt: z.string().min(1),
 })
 
+export const accountSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+})
+
 export const automationRuleSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -56,6 +63,7 @@ export const userSchema = z.object({
 export const syncPushPayloadSchema = z.object({
   transactions: z.array(transactionSchema).optional(),
   categories: z.array(categorySchema).optional(),
+  accounts: z.array(accountSchema).optional(),
   rules: z.array(automationRuleSchema).optional(),
   settings: z.array(settingRowSchema).optional(),
   users: z.array(userSchema).optional(),
@@ -66,6 +74,7 @@ export const backupSnapshotSchema = z.object({
   exportedAt: z.string().min(1),
   transactions: z.array(transactionSchema),
   categories: z.array(categorySchema),
+  accounts: z.array(accountSchema),
   rules: z.array(automationRuleSchema),
   settings: z.array(settingRowSchema),
   users: z.array(userSchema),
