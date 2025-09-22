@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { createCategory, listCategories } from "@/lib/categories/service"
 import { AuthenticationError, PasswordChangeRequiredError, requireSession } from "@/lib/auth/session"
+import { recordUserAction } from "@/lib/activity/service"
 
 const querySchema = z.object({
   search: z.string().optional(),
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    await requireSession()
+    const session = await requireSession()
     const payload = await request.json()
     const parsed = createSchema.safeParse(payload)
 
@@ -51,6 +52,9 @@ export async function POST(request: NextRequest) {
     }
 
     const category = await createCategory(parsed.data)
+    await recordUserAction(session.user, "category.create", "category", category.id, {
+      name: category.name,
+    })
     return NextResponse.json({ category }, { status: 201 })
   } catch (error) {
     if (error instanceof AuthenticationError) {

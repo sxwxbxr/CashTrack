@@ -2,7 +2,7 @@
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts"
 
-const data = [
+const DEFAULT_DATA = [
   { month: "Jul", income: 4200, expenses: 2325 },
   { month: "Aug", income: 4200, expenses: 2595 },
   { month: "Sep", income: 4500, expenses: 2355 },
@@ -11,21 +11,48 @@ const data = [
   { month: "Dec", income: 4800, expenses: 2920 },
 ]
 
-export function IncomeExpenseChart() {
+interface IncomeExpenseChartProps {
+  data?: Array<{ month: string; income: number; expenses: number }>
+}
+
+function formatCurrency(value: number) {
+  return Number(value).toLocaleString(undefined, { style: "currency", currency: "USD" })
+}
+
+export function IncomeExpenseChart({ data }: IncomeExpenseChartProps) {
+  const usingFallback = !data
+  const chartData = usingFallback ? DEFAULT_DATA : data
+  const hasData = chartData.some((point) => point.income !== 0 || point.expenses !== 0)
+
+  if (!usingFallback && !hasData) {
+    return (
+      <div className="flex h-[350px] items-center justify-center text-sm text-muted-foreground">
+        Add transactions to compare income and expenses.
+      </div>
+    )
+  }
+
   return (
     <ResponsiveContainer width="100%" height={400}>
-      <BarChart data={data}>
+      <BarChart data={chartData}>
         <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
         <XAxis dataKey="month" axisLine={false} tickLine={false} className="text-xs fill-muted-foreground" />
         <YAxis
           axisLine={false}
           tickLine={false}
           className="text-xs fill-muted-foreground"
-          tickFormatter={(value) => `$${value}`}
+          tickFormatter={(value) => formatCurrency(Number(value))}
         />
         <Tooltip
           content={({ active, payload, label }) => {
             if (active && payload && payload.length) {
+              const incomeValue = payload.find((entry) => entry.dataKey === "income")?.value as number | undefined
+              const expenseValue = payload.find((entry) => entry.dataKey === "expenses")?.value as number | undefined
+              const net =
+                typeof incomeValue === "number" && typeof expenseValue === "number"
+                  ? incomeValue - expenseValue
+                  : undefined
+
               return (
                 <div className="rounded-lg border bg-background p-2 shadow-sm">
                   <div className="grid grid-cols-1 gap-2">
@@ -35,14 +62,14 @@ export function IncomeExpenseChart() {
                         <span className="text-sm" style={{ color: entry.color }}>
                           {entry.name}:
                         </span>
-                        <span className="font-bold">${entry.value}</span>
+                        <span className="font-bold">{formatCurrency(Number(entry.value ?? 0))}</span>
                       </div>
                     ))}
-                    {payload.length === 2 && (
+                    {typeof net === "number" && (
                       <div className="flex items-center justify-between gap-2 border-t pt-2">
                         <span className="text-sm font-medium">Net:</span>
-                        <span className="font-bold text-green-600">
-                          ${(payload[0].value as number) - (payload[1].value as number)}
+                        <span className={net >= 0 ? "font-bold text-green-600" : "font-bold text-red-600"}>
+                          {formatCurrency(net)}
                         </span>
                       </div>
                     )}

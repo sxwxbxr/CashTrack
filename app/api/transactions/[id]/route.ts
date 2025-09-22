@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { deleteTransaction, updateTransaction } from "@/lib/transactions/service"
 import { AuthenticationError, PasswordChangeRequiredError, requireSession } from "@/lib/auth/session"
+import { recordUserAction } from "@/lib/activity/service"
 
 const updateSchema = z.object({
   date: z.string().optional(),
@@ -18,7 +19,7 @@ const updateSchema = z.object({
 
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    await requireSession()
+    const session = await requireSession()
     const payload = await request.json()
     const parsed = updateSchema.safeParse(payload)
 
@@ -27,6 +28,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     }
 
     const transaction = await updateTransaction(params.id, parsed.data)
+    await recordUserAction(session.user, "transaction.update", "transaction", transaction.id, {
+      changes: parsed.data,
+    })
     return NextResponse.json({ transaction })
   } catch (error) {
     if (error instanceof AuthenticationError) {
@@ -41,8 +45,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
 export async function DELETE(_request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    await requireSession()
+    const session = await requireSession()
     await deleteTransaction(params.id)
+    await recordUserAction(session.user, "transaction.delete", "transaction", params.id)
     return NextResponse.json({ success: true })
   } catch (error) {
     if (error instanceof AuthenticationError) {

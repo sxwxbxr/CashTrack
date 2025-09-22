@@ -5,6 +5,7 @@ import {
   CREATE_SETTINGS_TABLE,
   CREATE_SYNC_LOG_TABLE,
   CREATE_TRANSACTIONS_TABLE,
+  CREATE_USER_ACTIVITY_TABLE,
   CREATE_USERS_TABLE,
 } from "./schema"
 
@@ -18,6 +19,8 @@ function ensureIndexes() {
     "CREATE INDEX IF NOT EXISTS idx_transactions_updatedAt ON transactions(updatedAt)",
     "CREATE INDEX IF NOT EXISTS idx_automation_rules_category_priority ON automation_rules(categoryId, priority DESC)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_log_entity ON sync_log(entityType, entityId)",
+    "CREATE INDEX IF NOT EXISTS idx_user_activity_createdAt ON user_activity(createdAt DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_user_activity_userId ON user_activity(userId)",
   ]
 
   for (const statement of statements) {
@@ -38,6 +41,7 @@ export function runMigrations(): void {
     CREATE_AUTOMATION_RULES_TABLE,
     CREATE_SYNC_LOG_TABLE,
     CREATE_SETTINGS_TABLE,
+    CREATE_USER_ACTIVITY_TABLE,
   ]
 
   for (const statement of createStatements) {

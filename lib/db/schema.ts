@@ -71,3 +71,17 @@ export const CREATE_SETTINGS_TABLE = `
     updatedAt TEXT NOT NULL
   )
 `
+
+export const CREATE_USER_ACTIVITY_TABLE = `
+  CREATE TABLE IF NOT EXISTS user_activity (
+    id TEXT PRIMARY KEY,
+    userId TEXT NOT NULL,
+    username TEXT NOT NULL,
+    action TEXT NOT NULL,
+    entityType TEXT NOT NULL,
+    entityId TEXT,
+    details TEXT,
+    createdAt TEXT NOT NULL,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+  )
+`

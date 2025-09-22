@@ -93,6 +93,7 @@ const parseHeader = (content: string): string[] => {
 export function TransactionImportDialog({ open, onOpenChange, onComplete }: TransactionImportDialogProps) {
   const [step, setStep] = useState<ImportStep>("upload")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [fileKind, setFileKind] = useState<"csv" | "pdf" | null>(null)
   const [availableColumns, setAvailableColumns] = useState<string[]>([])
   const [mapping, setMapping] = useState<ColumnMapping>({ date: "", description: "", amount: "" })
   const [preview, setPreview] = useState<PreviewTransaction[]>([])
@@ -101,6 +102,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
   const [result, setResult] = useState<ImportResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [pdfAccountName, setPdfAccountName] = useState("Statement")
 
   const requiredFields = useMemo(() => ({
     date: mapping.date,
@@ -112,6 +114,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
     if (!open) {
       setStep("upload")
       setSelectedFile(null)
+      setFileKind(null)
       setAvailableColumns([])
       setMapping({ date: "", description: "", amount: "" })
       setPreview([])
@@ -120,6 +123,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
       setResult(null)
       setError(null)
       setIsProcessing(false)
+      setPdfAccountName("Statement")
     }
   }, [open])
 
@@ -128,6 +132,18 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
     setError(null)
     if (file) {
       setSelectedFile(file)
+      const extension = typeof file.name === "string" ? file.name.toLowerCase() : ""
+      const isPdf = file.type === "application/pdf" || extension.endsWith(".pdf")
+      setFileKind(isPdf ? "pdf" : "csv")
+
+      if (isPdf) {
+        const baseName = extension ? file.name.replace(/\.[^/.]+$/, "") : "Statement"
+        setPdfAccountName(baseName || "Statement")
+        setAvailableColumns([])
+        setMapping({ date: "", description: "", amount: "" })
+        return
+      }
+
       const reader = new FileReader()
       reader.onload = (loadEvent) => {
         const text = String(loadEvent.target?.result ?? "")
@@ -167,6 +183,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
     } else {
       setSelectedFile(null)
       setAvailableColumns([])
+      setFileKind(null)
     }
   }
 
@@ -175,22 +192,30 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
       throw new Error("Please select a file to import")
     }
 
-    const payload: ColumnMapping = {
-      date: mapping.date,
-      description: mapping.description,
-      amount: mapping.amount,
-    }
-
-    if (mapping.category) payload.category = mapping.category
-    if (mapping.account) payload.account = mapping.account
-    if (mapping.status) payload.status = mapping.status
-    if (mapping.type) payload.type = mapping.type
-    if (mapping.notes) payload.notes = mapping.notes
-
     const formData = new FormData()
     formData.append("file", selectedFile)
-    formData.append("mapping", JSON.stringify(payload))
     formData.append("dryRun", String(dryRun))
+    formData.append("importType", fileKind ?? "csv")
+
+    if (fileKind === "pdf") {
+      if (pdfAccountName.trim()) {
+        formData.append("accountName", pdfAccountName.trim())
+      }
+    } else {
+      const payload: ColumnMapping = {
+        date: mapping.date,
+        description: mapping.description,
+        amount: mapping.amount,
+      }
+
+      if (mapping.category) payload.category = mapping.category
+      if (mapping.account) payload.account = mapping.account
+      if (mapping.status) payload.status = mapping.status
+      if (mapping.type) payload.type = mapping.type
+      if (mapping.notes) payload.notes = mapping.notes
+
+      formData.append("mapping", JSON.stringify(payload))
+    }
 
     const response = await fetch("/api/transactions/import", {
       method: "POST",
@@ -210,7 +235,22 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
 
     if (step === "upload") {
       if (!selectedFile) {
-        setError("Select a CSV file to continue")
+        setError("Select a statement file to continue")
+        return
+      }
+      if (fileKind === "pdf") {
+        try {
+          setIsProcessing(true)
+          const previewResponse = (await submitImport(true)) as ImportPreviewResponse
+          setPreview(previewResponse.preview)
+          setPreviewTotal(previewResponse.total)
+          setPreviewErrors(previewResponse.errors)
+          setStep("preview")
+        } catch (submitError) {
+          setError(submitError instanceof Error ? submitError.message : "Failed to process file")
+        } finally {
+          setIsProcessing(false)
+        }
         return
       }
       setStep("mapping")
@@ -273,7 +313,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
       <DialogContent className="sm:max-w-[640px]">
         <DialogHeader>
           <DialogTitle>Import Transactions</DialogTitle>
-          <DialogDescription>Upload a CSV file from your bank or financial institution</DialogDescription>
+          <DialogDescription>Upload a CSV or PDF statement from your bank or financial institution</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -282,8 +322,14 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
           {step === "upload" && (
             <div className="space-y-4">
               <div className="grid w-full max-w-sm items-center gap-1.5">
-                <Label htmlFor="csv-file">CSV File</Label>
-                <Input id="csv-file" type="file" accept=".csv" onChange={handleFileSelect} disabled={isProcessing} />
+                <Label htmlFor="csv-file">Statement File</Label>
+                <Input
+                  id="csv-file"
+                  type="file"
+                  accept=".csv,.pdf"
+                  onChange={handleFileSelect}
+                  disabled={isProcessing}
+                />
               </div>
 
               {selectedFile && (
@@ -300,10 +346,24 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
                   </CardContent>
                 </Card>
               )}
+              {fileKind === "pdf" && (
+                <div className="space-y-2">
+                  <Label htmlFor="pdf-account-name">Account name</Label>
+                  <Input
+                    id="pdf-account-name"
+                    value={pdfAccountName}
+                    onChange={(event) => setPdfAccountName(event.target.value)}
+                    disabled={isProcessing}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Transactions imported from this statement will use this account label.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
-          {step === "mapping" && (
+          {step === "mapping" && fileKind !== "pdf" && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">Map your CSV columns to transaction fields</p>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

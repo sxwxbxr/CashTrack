@@ -4,6 +4,7 @@ import { z } from "zod"
 import { createTransaction, listTransactions } from "@/lib/transactions/service"
 import type { TransactionStatus, TransactionType } from "@/lib/transactions/types"
 import { AuthenticationError, PasswordChangeRequiredError, requireSession } from "@/lib/auth/session"
+import { recordUserAction } from "@/lib/activity/service"
 
 const querySchema = z.object({
   search: z.string().optional(),
@@ -70,7 +71,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    await requireSession()
+    const session = await requireSession()
     const payload = await request.json()
     const parsed = createSchema.safeParse(payload)
 
@@ -81,6 +82,11 @@ export async function POST(request: NextRequest) {
     const transaction = await createTransaction({
       ...parsed.data,
       categoryName: parsed.data.categoryName ?? "Uncategorized",
+    })
+    await recordUserAction(session.user, "transaction.create", "transaction", transaction.id, {
+      amount: transaction.amount,
+      description: transaction.description,
+      account: transaction.account,
     })
     return NextResponse.json({ transaction }, { status: 201 })
   } catch (error) {

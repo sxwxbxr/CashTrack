@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { deleteCategory, updateCategory } from "@/lib/categories/service"
 import { AuthenticationError, PasswordChangeRequiredError, requireSession } from "@/lib/auth/session"
+import { recordUserAction } from "@/lib/activity/service"
 
 const updateSchema = z.object({
   name: z.string().min(1, "Name is required").optional(),
@@ -13,7 +14,7 @@ const updateSchema = z.object({
 
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    await requireSession()
+    const session = await requireSession()
     const payload = await request.json()
     const parsed = updateSchema.safeParse(payload)
 
@@ -22,6 +23,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     }
 
     const category = await updateCategory(params.id, parsed.data)
+    await recordUserAction(session.user, "category.update", "category", category.id, {
+      changes: parsed.data,
+    })
     return NextResponse.json({ category })
   } catch (error) {
     if (error instanceof AuthenticationError) {
@@ -36,8 +40,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
 export async function DELETE(_request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    await requireSession()
+    const session = await requireSession()
     await deleteCategory(params.id)
+    await recordUserAction(session.user, "category.delete", "category", params.id)
     return NextResponse.json({ success: true })
   } catch (error) {
     if (error instanceof AuthenticationError) {
