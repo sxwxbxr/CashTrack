@@ -96,6 +96,28 @@ export async function seedIfNeeded(): Promise<void> {
     )
 
     const transactions = Array.isArray(transactionsJson) ? transactionsJson : []
+    const accountInsert = transactionDb.prepare(
+      `INSERT INTO accounts (id, name, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?)`
+    )
+
+    const accountIdByName = new Map<string, string>()
+
+    transactions.forEach((raw) => {
+      if (!raw || typeof raw !== "object") {
+        return
+      }
+
+      const accountName = String(raw.account ?? "Unknown").trim() || "Unknown"
+      const normalizedAccount = accountName.toLowerCase()
+      if (!accountIdByName.has(normalizedAccount)) {
+        const accountId = `acct_${randomUUID()}`
+        accountInsert.run(accountId, accountName, now, now)
+        accountIdByName.set(normalizedAccount, accountId)
+        insertSyncLog(transactionDb, "account", accountId, now)
+      }
+    })
+
     transactions.forEach((raw) => {
       if (!raw || typeof raw !== "object") {
         return

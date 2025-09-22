@@ -3,6 +3,7 @@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts"
 
 import { useTranslations } from "@/components/language-provider"
+import { DEFAULT_CHART_COLORS } from "@/lib/colors"
 
 const DEFAULT_DATA = [
   { month: "Jul", income: 4200, expenses: 2325 },
@@ -87,8 +88,8 @@ export function IncomeExpenseChart({ data }: IncomeExpenseChartProps) {
         <Legend
           formatter={(value: string) => <span style={{ color: "hsl(var(--muted-foreground))" }}>{t(value)}</span>}
         />
-        <Bar dataKey="income" fill="hsl(var(--chart-1))" name={t("Income")} radius={[4, 4, 0, 0]} />
-        <Bar dataKey="expenses" fill="hsl(var(--chart-2))" name={t("Expenses")} radius={[4, 4, 0, 0]} />
+        <Bar dataKey="income" fill={DEFAULT_CHART_COLORS[0]} name={t("Income")} radius={[4, 4, 0, 0]} />
+        <Bar dataKey="expenses" fill={DEFAULT_CHART_COLORS[1]} name={t("Expenses")} radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   )
