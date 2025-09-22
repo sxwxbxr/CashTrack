@@ -2,6 +2,8 @@
 
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts"
 
+import { useTranslations } from "@/components/language-provider"
+
 const COLOR_PALETTE = [
   "hsl(var(--chart-1))",
   "hsl(var(--chart-2))",
@@ -21,10 +23,12 @@ function formatCurrency(value: number) {
 }
 
 export function CategoryTrendChart({ data, series }: CategoryTrendChartProps) {
+  const { t } = useTranslations()
+  const axisTickStyle = { fill: "hsl(var(--muted-foreground))", fontSize: 12 }
   if (!series.length) {
     return (
       <div className="flex h-[350px] items-center justify-center text-sm text-muted-foreground">
-        Select categories to generate a spending trend.
+        {t("Select categories to generate a spending trend.")}
       </div>
     )
   }
@@ -36,7 +40,7 @@ export function CategoryTrendChart({ data, series }: CategoryTrendChartProps) {
   if (!hasData) {
     return (
       <div className="flex h-[350px] items-center justify-center text-sm text-muted-foreground">
-        Not enough data to build a category trend yet.
+        {t("Not enough data to build a category trend yet.")}
       </div>
     )
   }
@@ -44,12 +48,12 @@ export function CategoryTrendChart({ data, series }: CategoryTrendChartProps) {
   return (
     <ResponsiveContainer width="100%" height={400}>
       <LineChart data={data}>
-        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-        <XAxis dataKey="month" axisLine={false} tickLine={false} className="text-xs fill-muted-foreground" />
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+        <XAxis dataKey="month" axisLine={false} tickLine={false} tick={axisTickStyle} />
         <YAxis
           axisLine={false}
           tickLine={false}
-          className="text-xs fill-muted-foreground"
+          tick={axisTickStyle}
           tickFormatter={(value) => formatCurrency(Number(value))}
         />
         <Tooltip
@@ -62,7 +66,7 @@ export function CategoryTrendChart({ data, series }: CategoryTrendChartProps) {
                     {payload.map((entry, index) => (
                       <div key={index} className="flex items-center justify-between gap-2">
                         <span className="text-sm" style={{ color: entry.color }}>
-                          {entry.name}:
+                          {`${entry.name}:`}
                         </span>
                         <span className="font-bold">{formatCurrency(Number(entry.value ?? 0))}</span>
                       </div>
@@ -74,7 +78,7 @@ export function CategoryTrendChart({ data, series }: CategoryTrendChartProps) {
             return null
           }}
         />
-        <Legend />
+        <Legend formatter={(value: string) => <span style={{ color: "hsl(var(--muted-foreground))" }}>{value}</span>} />
         {series.map((item, index) => (
           <Line
             key={item.key}

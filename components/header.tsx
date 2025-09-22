@@ -8,6 +8,8 @@ import { MobileSidebar } from "@/components/sidebar"
 import { ModeToggle } from "@/components/mode-toggle"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { LanguageSwitcher } from "@/components/language-switcher"
+import { useTranslations } from "@/components/language-provider"
 
 interface HeaderProps {
   title: string
@@ -18,6 +20,7 @@ interface HeaderProps {
 export function Header({ title, description, action }: HeaderProps) {
   const [user, setUser] = useState<SessionUser | null>(null)
   const [loading, setLoading] = useState(true)
+  const { t } = useTranslations()
 
   useEffect(() => {
     let cancelled = false
@@ -71,14 +74,16 @@ export function Header({ title, description, action }: HeaderProps) {
             {action}
             {!loading && user ? (
               <div className="flex items-center space-x-3 text-sm text-muted-foreground">
-                <span className="hidden md:inline">Signed in as</span>
+                <span className="hidden md:inline">{t("Signed in as")}</span>
                 <span className="font-medium text-foreground">{user.username}</span>
                 <Separator orientation="vertical" className="hidden md:block h-6" />
                 <Button variant="ghost" size="sm" onClick={handleLogout}>
-                  Logout
+                  {t("Logout")}
                 </Button>
               </div>
             ) : null}
+            <LanguageSwitcher className="sm:hidden" />
+            <LanguageSwitcher className="hidden sm:flex" />
             <ModeToggle />
           </nav>
         </div>

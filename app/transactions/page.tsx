@@ -13,6 +13,7 @@ import { TransactionImportDialog } from "@/components/transaction-import-dialog"
 import { TransactionFormDialog, type TransactionFormValues } from "@/components/transaction-form-dialog"
 import type { TransactionStatus, TransactionType } from "@/lib/transactions/types"
 import { toast } from "sonner"
+import { useTranslations } from "@/components/language-provider"
 
 interface Transaction {
   id: string
@@ -48,6 +49,7 @@ interface CategoryOption {
 const DEFAULT_CATEGORY_FILTER = "all"
 
 export default function TransactionsPage() {
+  const { t } = useTranslations()
   const [searchTerm, setSearchTerm] = useState("")
   const [categoryFilter, setCategoryFilter] = useState<string>(DEFAULT_CATEGORY_FILTER)
   const [sortField, setSortField] = useState<"date" | "amount" | "description">("date")
@@ -62,12 +64,20 @@ export default function TransactionsPage() {
   const [formMode, setFormMode] = useState<"create" | "edit">("create")
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
   const [categories, setCategories] = useState<CategoryOption[]>([])
+  const statusLabels = useMemo(
+    () => ({
+      pending: t("Pending"),
+      cleared: t("Cleared"),
+      completed: t("Completed"),
+    }),
+    [t],
+  )
 
   const loadCategories = useCallback(async () => {
     try {
       const response = await fetch("/api/categories", { cache: "no-store" })
       if (!response.ok) {
-        throw new Error("Failed to load categories")
+        throw new Error(t("Failed to load categories"))
       }
       const data = (await response.json()) as { categories: Array<{ id: string; name: string; color: string }> }
       setCategories(data.categories.map((category) => ({
@@ -77,11 +87,11 @@ export default function TransactionsPage() {
       })))
     } catch (loadError) {
       console.error(loadError)
-      toast.error("Unable to load categories", {
+      toast.error(t("Unable to load categories"), {
         description: loadError instanceof Error ? loadError.message : undefined,
       })
     }
-  }, [])
+  }, [t])
 
   const fetchTransactions = useCallback(async () => {
     setIsLoading(true)
@@ -103,7 +113,7 @@ export default function TransactionsPage() {
       const response = await fetch(`/api/transactions?${params.toString()}`, { cache: "no-store" })
       if (!response.ok) {
         const body = await response.json().catch(() => ({} as { error?: unknown }))
-        const message = typeof body.error === "string" ? body.error : "Failed to load transactions"
+        const message = typeof body.error === "string" ? body.error : t("Failed to load transactions")
         throw new Error(message)
       }
 
@@ -112,13 +122,13 @@ export default function TransactionsPage() {
       setTotalCount(data.total)
       setTotals(data.totals)
     } catch (fetchError) {
-      const message = fetchError instanceof Error ? fetchError.message : "Failed to load transactions"
+      const message = fetchError instanceof Error ? fetchError.message : t("Failed to load transactions")
       setError(message)
-      toast.error("Unable to load transactions", { description: message })
+      toast.error(t("Unable to load transactions"), { description: message })
     } finally {
       setIsLoading(false)
     }
-  }, [searchTerm, categoryFilter, sortField, sortDirection])
+  }, [searchTerm, categoryFilter, sortField, sortDirection, t])
 
   useEffect(() => {
     loadCategories()
@@ -156,7 +166,7 @@ export default function TransactionsPage() {
   const handleFormSubmit = async (values: TransactionFormValues) => {
     const amount = Number(values.amount)
     if (Number.isNaN(amount)) {
-      throw new Error("Amount must be a number")
+      throw new Error(t("Amount must be a number"))
     }
 
     const payload = {
@@ -180,11 +190,11 @@ export default function TransactionsPage() {
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({} as { error?: unknown }))
-        const message = typeof body.error === "string" ? body.error : "Unable to create transaction"
+        const message = typeof body.error === "string" ? body.error : t("Unable to create transaction")
         throw new Error(message)
       }
 
-      toast.success("Transaction added")
+      toast.success(t("Transaction added"))
     } else if (selectedTransaction) {
       const response = await fetch(`/api/transactions/${selectedTransaction.id}`, {
         method: "PUT",
@@ -194,18 +204,18 @@ export default function TransactionsPage() {
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({} as { error?: unknown }))
-        const message = typeof body.error === "string" ? body.error : "Unable to update transaction"
+        const message = typeof body.error === "string" ? body.error : t("Unable to update transaction")
         throw new Error(message)
       }
 
-      toast.success("Transaction updated")
+      toast.success(t("Transaction updated"))
     }
 
     await fetchTransactions()
   }
 
   const handleDelete = async (transaction: Transaction) => {
-    const confirmed = window.confirm("Delete this transaction?")
+    const confirmed = window.confirm(t("Delete this transaction?"))
     if (!confirmed) return
 
     try {
@@ -215,23 +225,23 @@ export default function TransactionsPage() {
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({} as { error?: unknown }))
-        const message = typeof body.error === "string" ? body.error : "Unable to delete transaction"
+        const message = typeof body.error === "string" ? body.error : t("Unable to delete transaction")
         throw new Error(message)
       }
 
-      toast.success("Transaction deleted")
+      toast.success(t("Transaction deleted"))
       await fetchTransactions()
     } catch (deleteError) {
-      const message = deleteError instanceof Error ? deleteError.message : "Unable to delete transaction"
-      toast.error("Delete failed", { description: message })
+      const message = deleteError instanceof Error ? deleteError.message : t("Unable to delete transaction")
+      toast.error(t("Delete failed"), { description: message })
     }
   }
 
   const handleImportComplete = (count: number) => {
     if (count > 0) {
-      toast.success(`${count} transactions imported`)
+      toast.success(t("{{count}} transactions imported", { values: { count: count.toString() } }))
     } else {
-      toast.info("No new transactions imported")
+      toast.info(t("No new transactions imported"))
     }
     fetchTransactions()
   }
@@ -258,7 +268,7 @@ export default function TransactionsPage() {
           <TableCell colSpan={7} className="h-24 text-center text-sm text-muted-foreground">
             <div className="flex items-center justify-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Loading transactions...
+              {t("Loading transactions...")}
             </div>
           </TableCell>
         </TableRow>
@@ -279,7 +289,7 @@ export default function TransactionsPage() {
       return (
         <TableRow>
           <TableCell colSpan={7} className="h-24 text-center text-sm text-muted-foreground">
-            No transactions found. Try adjusting your filters.
+            {t("No transactions found. Try adjusting your filters.")}
           </TableCell>
         </TableRow>
       )
@@ -295,7 +305,7 @@ export default function TransactionsPage() {
           </div>
         </TableCell>
         <TableCell>
-          <Badge variant="secondary">{transaction.categoryName || "Uncategorized"}</Badge>
+          <Badge variant="secondary">{transaction.categoryName || t("Uncategorized")}</Badge>
         </TableCell>
         <TableCell className="text-muted-foreground">{transaction.account}</TableCell>
         <TableCell>
@@ -305,7 +315,7 @@ export default function TransactionsPage() {
         </TableCell>
         <TableCell>
           <Badge variant={transaction.status === "completed" ? "default" : "secondary"}>
-            {transaction.status}
+            {statusLabels[transaction.status] ?? transaction.status}
           </Badge>
         </TableCell>
         <TableCell className="text-right">
@@ -324,17 +334,17 @@ export default function TransactionsPage() {
 
   return (
     <AppLayout
-      title="Transactions"
-      description="Manage and track your financial transactions"
+      title={t("Transactions")}
+      description={t("Manage and track your financial transactions")}
       action={
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => setIsImportOpen(true)}>
             <Upload className="mr-2 h-4 w-4" />
-            Import CSV
+            {t("Import CSV")}
           </Button>
           <Button size="sm" onClick={openCreateDialog}>
             <Plus className="mr-2 h-4 w-4" />
-            Add Transaction
+            {t("Add Transaction")}
           </Button>
         </div>
       }
@@ -342,15 +352,15 @@ export default function TransactionsPage() {
       <div className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle>Filter Transactions</CardTitle>
-            <CardDescription>Search and filter your transactions</CardDescription>
+            <CardTitle>{t("Filter Transactions")}</CardTitle>
+            <CardDescription>{t("Search and filter your transactions")}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex flex-col gap-4 md:flex-row md:items-center">
               <div className="relative flex-1">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search transactions..."
+                  placeholder={t("Search transactions...")}
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
                   className="pl-8"
@@ -362,8 +372,8 @@ export default function TransactionsPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={DEFAULT_CATEGORY_FILTER}>All Categories</SelectItem>
-                  <SelectItem value="uncategorized">Uncategorized</SelectItem>
+                  <SelectItem value={DEFAULT_CATEGORY_FILTER}>{t("All Categories")}</SelectItem>
+                  <SelectItem value="uncategorized">{t("Uncategorized")}</SelectItem>
                   {categories.map((category) => (
                     <SelectItem key={category.id} value={category.id}>
                       {category.name}
@@ -377,9 +387,19 @@ export default function TransactionsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>All Transactions</CardTitle>
+            <CardTitle>{t("All Transactions")}</CardTitle>
             <CardDescription>
-              {`Showing ${transactions.length} of ${totalCount} transactions · Income: $${totals.income.toFixed(2)} · Expenses: -$${totals.expenses.toFixed(2)}`}
+              {t(
+                "Showing {{visible}} of {{total}} transactions · Income: {{income}} · Expenses: {{expenses}}",
+                {
+                  values: {
+                    visible: transactions.length.toString(),
+                    total: totalCount.toString(),
+                    income: `$${totals.income.toFixed(2)}`,
+                    expenses: `-$${totals.expenses.toFixed(2)}`,
+                  },
+                },
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -389,7 +409,7 @@ export default function TransactionsPage() {
                   <TableRow>
                     <TableHead>
                       <Button variant="ghost" onClick={() => handleSort("date")} className="h-auto p-0 font-semibold">
-                        Date
+                        {t("Date")}
                         <ArrowUpDown className="ml-2 h-4 w-4" />
                       </Button>
                     </TableHead>
@@ -399,20 +419,20 @@ export default function TransactionsPage() {
                         onClick={() => handleSort("description")}
                         className="h-auto p-0 font-semibold"
                       >
-                        Description
+                        {t("Description")}
                         <ArrowUpDown className="ml-2 h-4 w-4" />
                       </Button>
                     </TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Account</TableHead>
+                    <TableHead>{t("Category")}</TableHead>
+                    <TableHead>{t("Account")}</TableHead>
                     <TableHead>
                       <Button variant="ghost" onClick={() => handleSort("amount")} className="h-auto p-0 font-semibold">
-                        Amount
+                        {t("Amount")}
                         <ArrowUpDown className="ml-2 h-4 w-4" />
                       </Button>
                     </TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead>{t("Status")}</TableHead>
+                    <TableHead className="text-right">{t("Actions")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>{renderTableBody()}</TableBody>

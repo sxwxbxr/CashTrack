@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FileText, CheckCircle, Loader2, AlertTriangle } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { TransactionType } from "@/lib/transactions/types"
+import { useTranslations } from "@/components/language-provider"
 
 interface TransactionImportDialogProps {
   open: boolean
@@ -58,7 +59,7 @@ interface ImportResult extends ImportPreviewResponse {
   skipped: number
 }
 
-const optionalLabel = "None"
+const OPTIONAL_LABEL_KEY = "None"
 
 const parseHeader = (content: string): string[] => {
   const [firstLine] = content.split(/\r?\n/, 1)
@@ -91,6 +92,9 @@ const parseHeader = (content: string): string[] => {
 }
 
 export function TransactionImportDialog({ open, onOpenChange, onComplete }: TransactionImportDialogProps) {
+  const { t } = useTranslations()
+  const optionalLabel = t(OPTIONAL_LABEL_KEY)
+  const defaultStatementName = t("Statement")
   const [step, setStep] = useState<ImportStep>("upload")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [fileKind, setFileKind] = useState<"csv" | "pdf" | null>(null)
@@ -102,7 +106,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
   const [result, setResult] = useState<ImportResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
-  const [pdfAccountName, setPdfAccountName] = useState("Statement")
+  const [pdfAccountName, setPdfAccountName] = useState(defaultStatementName)
 
   const requiredFields = useMemo(() => ({
     date: mapping.date,
@@ -123,9 +127,9 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
       setResult(null)
       setError(null)
       setIsProcessing(false)
-      setPdfAccountName("Statement")
+      setPdfAccountName(defaultStatementName)
     }
-  }, [open])
+  }, [open, defaultStatementName])
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -137,8 +141,8 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
       setFileKind(isPdf ? "pdf" : "csv")
 
       if (isPdf) {
-        const baseName = extension ? file.name.replace(/\.[^/.]+$/, "") : "Statement"
-        setPdfAccountName(baseName || "Statement")
+        const baseName = extension ? file.name.replace(/\.[^/.]+$/, "") : defaultStatementName
+        setPdfAccountName(baseName || defaultStatementName)
         setAvailableColumns([])
         setMapping({ date: "", description: "", amount: "" })
         return
@@ -184,12 +188,13 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
       setSelectedFile(null)
       setAvailableColumns([])
       setFileKind(null)
+      setPdfAccountName(defaultStatementName)
     }
   }
 
   const submitImport = async (dryRun: boolean) => {
     if (!selectedFile) {
-      throw new Error("Please select a file to import")
+      throw new Error(t("Please select a file to import"))
     }
 
     const formData = new FormData()
@@ -224,7 +229,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
 
     if (!response.ok) {
       const body = await response.json().catch(() => ({}))
-      throw new Error(body.error ?? "Import failed")
+      throw new Error(body.error ?? t("Import failed"))
     }
 
     return (await response.json()) as ImportPreviewResponse | ImportResult
@@ -235,7 +240,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
 
     if (step === "upload") {
       if (!selectedFile) {
-        setError("Select a statement file to continue")
+        setError(t("Select a statement file to continue"))
         return
       }
       if (fileKind === "pdf") {
@@ -247,7 +252,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
           setPreviewErrors(previewResponse.errors)
           setStep("preview")
         } catch (submitError) {
-          setError(submitError instanceof Error ? submitError.message : "Failed to process file")
+          setError(submitError instanceof Error ? submitError.message : t("Failed to process file"))
         } finally {
           setIsProcessing(false)
         }
@@ -259,7 +264,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
 
     if (step === "mapping") {
       if (!requiredFields.date || !requiredFields.description || !requiredFields.amount) {
-        setError("Please map the date, description, and amount columns")
+        setError(t("Please map the date, description, and amount columns"))
         return
       }
 
@@ -271,7 +276,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
         setPreviewErrors(previewResponse.errors)
         setStep("preview")
       } catch (submitError) {
-        setError(submitError instanceof Error ? submitError.message : "Failed to process file")
+        setError(submitError instanceof Error ? submitError.message : t("Failed to process file"))
       } finally {
         setIsProcessing(false)
       }
@@ -285,7 +290,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
         setStep("success")
         onComplete?.(importResponse.imported)
       } catch (importError) {
-        setError(importError instanceof Error ? importError.message : "Failed to import transactions")
+        setError(importError instanceof Error ? importError.message : t("Failed to import transactions"))
       } finally {
         setIsProcessing(false)
       }
@@ -312,8 +317,10 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[640px]">
         <DialogHeader>
-          <DialogTitle>Import Transactions</DialogTitle>
-          <DialogDescription>Upload a CSV or PDF statement from your bank or financial institution</DialogDescription>
+          <DialogTitle>{t("Import Transactions")}</DialogTitle>
+          <DialogDescription>
+            {t("Upload a CSV or PDF statement from your bank or financial institution")}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -322,7 +329,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
           {step === "upload" && (
             <div className="space-y-4">
               <div className="grid w-full max-w-sm items-center gap-1.5">
-                <Label htmlFor="csv-file">Statement File</Label>
+                <Label htmlFor="csv-file">{t("Statement File")}</Label>
                 <Input
                   id="csv-file"
                   type="file"
@@ -335,7 +342,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
               {selectedFile && (
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-sm">Selected File</CardTitle>
+                    <CardTitle className="text-sm">{t("Selected File")}</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="flex items-center gap-2">
@@ -348,7 +355,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
               )}
               {fileKind === "pdf" && (
                 <div className="space-y-2">
-                  <Label htmlFor="pdf-account-name">Account name</Label>
+                  <Label htmlFor="pdf-account-name">{t("Account name")}</Label>
                   <Input
                     id="pdf-account-name"
                     value={pdfAccountName}
@@ -356,7 +363,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
                     disabled={isProcessing}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Transactions imported from this statement will use this account label.
+                    {t("Transactions imported from this statement will use this account label.")}
                   </p>
                 </div>
               )}
@@ -365,17 +372,17 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
 
           {step === "mapping" && fileKind !== "pdf" && (
             <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">Map your CSV columns to transaction fields</p>
+              <p className="text-sm text-muted-foreground">{t("Map your CSV columns to transaction fields")}</p>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 {[
-                  { label: "Date Column", field: "date", required: true },
-                  { label: "Description Column", field: "description", required: true },
-                  { label: "Amount Column", field: "amount", required: true },
-                  { label: "Category Column", field: "category", required: false },
-                  { label: "Account Column", field: "account", required: false },
-                  { label: "Status Column", field: "status", required: false },
-                  { label: "Type Column", field: "type", required: false },
-                  { label: "Notes Column", field: "notes", required: false },
+                  { label: t("Date Column"), field: "date", required: true },
+                  { label: t("Description Column"), field: "description", required: true },
+                  { label: t("Amount Column"), field: "amount", required: true },
+                  { label: t("Category Column"), field: "category", required: false },
+                  { label: t("Account Column"), field: "account", required: false },
+                  { label: t("Status Column"), field: "status", required: false },
+                  { label: t("Type Column"), field: "type", required: false },
+                  { label: t("Notes Column"), field: "notes", required: false },
                 ].map(({ label, field, required }) => (
                   <div key={field} className="space-y-2">
                     <Label>
@@ -392,7 +399,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
                       }
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder={required ? "Select column" : optionalLabel} />
+                        <SelectValue placeholder={required ? t("Select column") : optionalLabel} />
                       </SelectTrigger>
                       <SelectContent>
                         {!required && (
@@ -417,8 +424,12 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="font-semibold">Preview Transactions</h3>
-                  <p className="text-sm text-muted-foreground">Showing first {preview.length} of {previewTotal} rows</p>
+                  <h3 className="font-semibold">{t("Preview Transactions")}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {t("Showing first {{visible}} of {{total}} rows", {
+                      values: { visible: preview.length.toString(), total: previewTotal.toString() },
+                    })}
+                  </p>
                 </div>
                 {isProcessing && <Loader2 className="h-4 w-4 animate-spin" />}
               </div>
@@ -429,7 +440,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
                       <div>
                         <p className="font-medium">{transaction.description}</p>
                         <p className="text-xs text-muted-foreground">
-                          {transaction.date} • {transaction.categoryName ?? "Uncategorized"}
+                          {transaction.date} • {transaction.categoryName ?? t("Uncategorized")}
                         </p>
                       </div>
                       <div className="text-right">
@@ -445,16 +456,22 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
               {previewErrors.length > 0 && (
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-sm">Skipped Rows</CardTitle>
+                    <CardTitle className="text-sm">{t("Skipped Rows")}</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2">
                     {previewErrors.slice(0, 5).map((item, index) => (
                       <p key={index} className="text-xs text-muted-foreground">
-                        Line {item.line}: {item.message}
+                        {t("Line {{line}}: {{message}}", {
+                          values: { line: item.line.toString(), message: item.message },
+                        })}
                       </p>
                     ))}
                     {previewErrors.length > 5 && (
-                      <p className="text-xs text-muted-foreground">{previewErrors.length - 5} more rows with issues.</p>
+                      <p className="text-xs text-muted-foreground">
+                        {t("{{count}} more rows with issues.", {
+                          values: { count: (previewErrors.length - 5).toString() },
+                        })}
+                      </p>
                     )}
                   </CardContent>
                 </Card>
@@ -466,18 +483,25 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
             <div className="space-y-4 text-center">
               <CheckCircle className="mx-auto h-12 w-12 text-green-600" />
               <div>
-                <h3 className="text-lg font-semibold">Import complete</h3>
+                <h3 className="text-lg font-semibold">{t("Import complete")}</h3>
                 <p className="text-sm text-muted-foreground">
-                  {result.imported} transactions imported, {result.skipped} skipped
+                  {t("{{imported}} transactions imported, {{skipped}} skipped", {
+                    values: {
+                      imported: result.imported.toString(),
+                      skipped: result.skipped.toString(),
+                    },
+                  })}
                 </p>
               </div>
               {result.errors.length > 0 && (
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Some rows were skipped:</p>
+                  <p className="text-xs text-muted-foreground">{t("Some rows were skipped:")}</p>
                   <div className="max-h-32 overflow-y-auto rounded-md border p-2 text-left text-xs">
                     {result.errors.map((item, index) => (
                       <p key={index}>
-                        Line {item.line}: {item.message}
+                        {t("Line {{line}}: {{message}}", {
+                          values: { line: item.line.toString(), message: item.message },
+                        })}
                       </p>
                     ))}
                   </div>
@@ -489,22 +513,22 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
 
         <DialogFooter>
           {step === "success" ? (
-            <Button onClick={handleClose}>Done</Button>
+            <Button onClick={handleClose}>{t("Done")}</Button>
           ) : (
             <>
               <Button variant="outline" onClick={handleClose} disabled={isProcessing}>
-                Cancel
+                {t("Cancel")}
               </Button>
               <Button onClick={handleNext} disabled={isProcessing || (step === "upload" && !selectedFile)}>
                 {isProcessing ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Processing
+                    {t("Processing")}
                   </>
                 ) : step === "preview" ? (
-                  "Import"
+                  t("Import")
                 ) : (
-                  "Next"
+                  t("Next")
                 )}
               </Button>
             </>

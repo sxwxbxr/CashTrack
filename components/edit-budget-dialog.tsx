@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { useTranslations } from "@/components/language-provider"
 
 interface CategorySummary {
   id: string
@@ -28,6 +29,7 @@ interface EditBudgetDialogProps {
 }
 
 export function EditBudgetDialog({ open, onOpenChange, category, onSubmit }: EditBudgetDialogProps) {
+  const { t } = useTranslations()
   const [budget, setBudget] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -48,12 +50,12 @@ export function EditBudgetDialog({ open, onOpenChange, category, onSubmit }: Edi
     try {
       const parsed = Number.parseFloat(budget)
       if (Number.isNaN(parsed) || parsed < 0) {
-        throw new Error("Budget must be a positive number")
+        throw new Error(t("Budget must be a positive number"))
       }
       await onSubmit(parsed)
       onOpenChange(false)
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Failed to update budget")
+      setError(submitError instanceof Error ? submitError.message : t("Failed to update budget"))
     } finally {
       setIsSubmitting(false)
     }
@@ -63,18 +65,26 @@ export function EditBudgetDialog({ open, onOpenChange, category, onSubmit }: Edi
     return null
   }
 
-  const utilization = budget && Number.parseFloat(budget) > 0 ? (category.spent / Number.parseFloat(budget)) * 100 : null
+  const utilization =
+    category && budget && Number.parseFloat(budget) > 0
+      ? (category.spent / Number.parseFloat(budget)) * 100
+      : null
+  const formattedSpent = category ? `$${category.spent.toFixed(2)}` : "$0.00"
+  const formattedUtilization =
+    utilization !== null && Number.isFinite(utilization) ? Math.min(utilization, 999).toFixed(1) : null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Edit Budget</DialogTitle>
-          <DialogDescription>Update the monthly budget for {category.name}</DialogDescription>
+          <DialogTitle>{t("Edit Budget")}</DialogTitle>
+          <DialogDescription>
+            {t("Update the monthly budget for {{category}}", { values: { category: category.name } })}
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="budget">Monthly Budget</Label>
+            <Label htmlFor="budget">{t("Monthly Budget")}</Label>
             <Input
               id="budget"
               type="number"
@@ -87,9 +97,9 @@ export function EditBudgetDialog({ open, onOpenChange, category, onSubmit }: Edi
           </div>
 
           <div className="text-sm text-muted-foreground space-y-1">
-            <p>Current spending: ${category.spent.toFixed(2)}</p>
-            {utilization !== null && Number.isFinite(utilization) && (
-              <p>New budget utilization: {Math.min(utilization, 999).toFixed(1)}%</p>
+            <p>{t("Current spending: {{amount}}", { values: { amount: formattedSpent } })}</p>
+            {formattedUtilization !== null && (
+              <p>{t("New budget utilization: {{percent}}%", { values: { percent: formattedUtilization } })}</p>
             )}
           </div>
 
@@ -97,10 +107,10 @@ export function EditBudgetDialog({ open, onOpenChange, category, onSubmit }: Edi
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Saving..." : "Update Budget"}
+              {isSubmitting ? t("Saving…") : t("Update Budget")}
             </Button>
           </DialogFooter>
         </form>

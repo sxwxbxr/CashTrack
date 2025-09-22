@@ -2,6 +2,8 @@
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts"
 
+import { useTranslations } from "@/components/language-provider"
+
 const DEFAULT_DATA = [
   { month: "Jan", previous: 2400, current: 2200 },
   { month: "Feb", previous: 2100, current: 2400 },
@@ -27,15 +29,23 @@ function formatCurrency(value: number) {
   return Number(value).toLocaleString(undefined, { style: "currency", currency: "USD" })
 }
 
-export function YearlyComparisonChart({ data, currentLabel = "Current", previousLabel = "Previous" }: YearlyComparisonChartProps) {
+export function YearlyComparisonChart({
+  data,
+  currentLabel = "Current",
+  previousLabel = "Previous",
+}: YearlyComparisonChartProps) {
+  const { t } = useTranslations()
   const usingFallback = !data
   const chartData = usingFallback ? DEFAULT_DATA : data
   const hasData = chartData.some((point) => point.current !== 0 || point.previous !== 0)
+  const axisTickStyle = { fill: "hsl(var(--muted-foreground))", fontSize: 12 }
+  const resolvedCurrentLabel = t(currentLabel)
+  const resolvedPreviousLabel = t(previousLabel)
 
   if (!usingFallback && !hasData) {
     return (
       <div className="flex h-[350px] items-center justify-center text-sm text-muted-foreground">
-        Year-over-year comparison becomes available once you have at least two years of spending data.
+        {t("Year-over-year comparison becomes available once you have at least two years of spending data.")}
       </div>
     )
   }
@@ -43,12 +53,12 @@ export function YearlyComparisonChart({ data, currentLabel = "Current", previous
   return (
     <ResponsiveContainer width="100%" height={400}>
       <BarChart data={chartData}>
-        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-        <XAxis dataKey="month" axisLine={false} tickLine={false} className="text-xs fill-muted-foreground" />
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+        <XAxis dataKey="month" axisLine={false} tickLine={false} tick={axisTickStyle} />
         <YAxis
           axisLine={false}
           tickLine={false}
-          className="text-xs fill-muted-foreground"
+          tick={axisTickStyle}
           tickFormatter={(value) => formatCurrency(Number(value))}
         />
         <Tooltip
@@ -61,7 +71,7 @@ export function YearlyComparisonChart({ data, currentLabel = "Current", previous
                     {payload.map((entry, index) => (
                       <div key={index} className="flex items-center justify-between gap-2">
                         <span className="text-sm" style={{ color: entry.color }}>
-                          {entry.name}:
+                          {`${t(entry.name ?? "")}:`}
                         </span>
                         <span className="font-bold">{formatCurrency(Number(entry.value ?? 0))}</span>
                       </div>
@@ -73,9 +83,9 @@ export function YearlyComparisonChart({ data, currentLabel = "Current", previous
             return null
           }}
         />
-        <Legend />
-        <Bar dataKey="previous" fill="hsl(var(--chart-2))" name={previousLabel} radius={[4, 4, 0, 0]} />
-        <Bar dataKey="current" fill="hsl(var(--chart-1))" name={currentLabel} radius={[4, 4, 0, 0]} />
+        <Legend formatter={(value: string) => <span style={{ color: "hsl(var(--muted-foreground))" }}>{t(value)}</span>} />
+        <Bar dataKey="previous" fill="hsl(var(--chart-2))" name={resolvedPreviousLabel} radius={[4, 4, 0, 0]} />
+        <Bar dataKey="current" fill="hsl(var(--chart-1))" name={resolvedCurrentLabel} radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   )

@@ -17,6 +17,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import type { AppSettingsPayload, BackupFrequency } from "@/lib/settings/types"
 import type { SessionUser } from "@/lib/auth/session"
+import { useTranslations } from "@/components/language-provider"
 
 interface SettingsResponse {
   settings: AppSettingsPayload
@@ -56,82 +57,93 @@ interface ActivityResponse {
   error?: unknown
 }
 
-function describeRelativeTime(iso: string | null): string {
-  if (!iso) return "Never"
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) {
-    return "Never"
-  }
-  return `${formatDistanceToNow(date, { addSuffix: true })}`
-}
-
 const activityCurrencyFormatter = new Intl.NumberFormat(undefined, {
   style: "currency",
   currency: "USD",
   minimumFractionDigits: 2,
 })
 
-function formatActionLabel(action: string): string {
-  const [entityRaw, verbRaw] = action.split(".")
-  if (!entityRaw || !verbRaw) {
-    return action.replace(/[_-]/g, " ")
-  }
-
-  const verbMap: Record<string, string> = {
-    create: "Created",
-    update: "Updated",
-    delete: "Deleted",
-    import: "Imported",
-  }
-
-  const verb = verbMap[verbRaw] ?? `${verbRaw.charAt(0).toUpperCase()}${verbRaw.slice(1)}`
-  const entity = entityRaw
-    .split(/[_-]/)
-    .map((part) => (part ? `${part.charAt(0).toUpperCase()}${part.slice(1)}` : ""))
-    .join(" ")
-  return `${verb} ${entity}`.trim()
-}
-
-function summarizeActivityDetails(details: Record<string, unknown> | null): string[] {
-  if (!details) return []
-
-  const items: string[] = []
-
-  if (typeof details.amount === "number") {
-    items.push(`Amount: ${activityCurrencyFormatter.format(details.amount)}`)
-  }
-
-  if (typeof details.account === "string" && details.account) {
-    items.push(`Account: ${details.account}`)
-  }
-
-  if (typeof details.username === "string" && details.username) {
-    items.push(`Username: ${details.username}`)
-  }
-
-  if (typeof details.mustChangePassword === "boolean") {
-    items.push(details.mustChangePassword ? "Password reset required" : "Password confirmed")
-  }
-
-  if (typeof details.imported === "number") {
-    items.push(`Imported: ${details.imported}`)
-  }
-
-  if (typeof details.skipped === "number" && details.skipped > 0) {
-    items.push(`Skipped: ${details.skipped}`)
-  }
-
-  if (details.changes && typeof details.changes === "object" && details.changes !== null) {
-    const changeKeys = Object.keys(details.changes as Record<string, unknown>)
-    if (changeKeys.length > 0) {
-      items.push(`Fields: ${changeKeys.join(", ")}`)
-    }
-  }
-
-  return items.slice(0, 3)
-}
-
 export default function SettingsPage() {
+  const { t } = useTranslations()
+  const describeRelativeTime = useCallback(
+    (iso: string | null): string => {
+      if (!iso) return t("Never")
+      const date = new Date(iso)
+      if (Number.isNaN(date.getTime())) {
+        return t("Never")
+      }
+      return formatDistanceToNow(date, { addSuffix: true })
+    },
+    [t],
+  )
+  const formatActionLabel = useCallback(
+    (action: string): string => {
+      const [entityRaw, verbRaw] = action.split(".")
+      if (!entityRaw || !verbRaw) {
+        return action.replace(/[_-]/g, " ")
+      }
+
+      const verbMap: Record<string, string> = {
+        create: t("Created"),
+        update: t("Updated"),
+        delete: t("Deleted"),
+        import: t("Imported"),
+      }
+
+      const verb = verbMap[verbRaw] ?? `${verbRaw.charAt(0).toUpperCase()}${verbRaw.slice(1)}`
+      const entity = entityRaw
+        .split(/[_-]/)
+        .map((part) => (part ? `${part.charAt(0).toUpperCase()}${part.slice(1)}` : ""))
+        .join(" ")
+      return `${verb} ${entity}`.trim()
+    },
+    [t],
+  )
+  const summarizeActivityDetails = useCallback(
+    (details: Record<string, unknown> | null): string[] => {
+      if (!details) return []
+
+      const items: string[] = []
+
+      if (typeof details.amount === "number") {
+        items.push(
+          t("Amount: {{value}}", {
+            values: { value: activityCurrencyFormatter.format(details.amount) },
+          }),
+        )
+      }
+
+      if (typeof details.account === "string" && details.account) {
+        items.push(t("Account: {{value}}", { values: { value: details.account } }))
+      }
+
+      if (typeof details.username === "string" && details.username) {
+        items.push(t("Username: {{value}}", { values: { value: details.username } }))
+      }
+
+      if (typeof details.mustChangePassword === "boolean") {
+        items.push(details.mustChangePassword ? t("Password reset required") : t("Password confirmed"))
+      }
+
+      if (typeof details.imported === "number") {
+        items.push(t("Imported: {{value}}", { values: { value: details.imported.toString() } }))
+      }
+
+      if (typeof details.skipped === "number" && details.skipped > 0) {
+        items.push(t("Skipped: {{value}}", { values: { value: details.skipped.toString() } }))
+      }
+
+      if (details.changes && typeof details.changes === "object" && details.changes !== null) {
+        const changeKeys = Object.keys(details.changes as Record<string, unknown>)
+        if (changeKeys.length > 0) {
+          items.push(t("Fields: {{value}}", { values: { value: changeKeys.join(", ") } }))
+        }
+      }
+
+      return items.slice(0, 3)
+    },
+    [t],
+  )
   const [settings, setSettings] = useState<AppSettingsPayload | null>(null)
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null)
   const [loading, setLoading] = useState(true)
@@ -168,7 +180,7 @@ export default function SettingsPage() {
             const data = (await settingsRes.json()) as SettingsResponse
             setSettings(data.settings)
           } else {
-            toast.error("Unable to load settings")
+            toast.error(t("Unable to load settings"))
           }
 
           if (sessionRes.ok) {
@@ -179,7 +191,7 @@ export default function SettingsPage() {
       } catch (error) {
         if (!cancelled) {
           console.error(error)
-          toast.error("Unable to load settings")
+          toast.error(t("Unable to load settings"))
         }
       } finally {
         if (!cancelled) {
@@ -192,7 +204,7 @@ export default function SettingsPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
 
   const fetchHouseholdUsers = useCallback(async () => {
     if (!isHouseholdAdmin) {
@@ -205,18 +217,18 @@ export default function SettingsPage() {
       const response = await fetch("/api/users", { cache: "no-store" })
       const body = (await response.json().catch(() => ({}))) as UsersApiResponse
       if (!response.ok) {
-        const message = typeof body.error === "string" ? body.error : "Unable to load accounts"
+        const message = typeof body.error === "string" ? body.error : t("Unable to load accounts")
         throw new Error(message)
       }
       setHouseholdUsers(Array.isArray(body.users) ? body.users : [])
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to load accounts"
+      const message = error instanceof Error ? error.message : t("Unable to load accounts")
       setUsersError(message)
-      toast.error("Unable to load accounts", { description: message })
+      toast.error(t("Unable to load accounts"), { description: message })
     } finally {
       setUsersLoading(false)
     }
-  }, [isHouseholdAdmin])
+  }, [isHouseholdAdmin, t])
 
   const fetchHouseholdActivity = useCallback(async () => {
     if (!isHouseholdAdmin) {
@@ -229,18 +241,18 @@ export default function SettingsPage() {
       const response = await fetch("/api/activity?limit=25", { cache: "no-store" })
       const body = (await response.json().catch(() => ({}))) as ActivityResponse
       if (!response.ok) {
-        const message = typeof body.error === "string" ? body.error : "Unable to load activity"
+        const message = typeof body.error === "string" ? body.error : t("Unable to load activity")
         throw new Error(message)
       }
       setActivity(Array.isArray(body.activities) ? body.activities : [])
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to load activity"
+      const message = error instanceof Error ? error.message : t("Unable to load activity")
       setActivityError(message)
-      toast.error("Unable to load activity", { description: message })
+      toast.error(t("Unable to load activity"), { description: message })
     } finally {
       setActivityLoading(false)
     }
-  }, [isHouseholdAdmin])
+  }, [isHouseholdAdmin, t])
 
   useEffect(() => {
     setThemeReady(true)
@@ -271,13 +283,13 @@ export default function SettingsPage() {
         body: JSON.stringify(updates),
       })
       if (!response.ok) {
-        throw new Error("Failed to update settings")
+        throw new Error(t("Failed to update settings"))
       }
       const data = (await response.json()) as SettingsResponse
       setSettings(data.settings)
-      toast.success("Settings saved")
+      toast.success(t("Settings saved"))
     } catch (error) {
-      toast.error("Unable to save settings", {
+      toast.error(t("Unable to save settings"), {
         description: error instanceof Error ? error.message : undefined,
       })
     }
@@ -293,7 +305,7 @@ export default function SettingsPage() {
     const password = newUserPassword.trim()
 
     if (!username || !password) {
-      setNewUserError("Provide both a username and password")
+      setNewUserError(t("Provide both a username and password"))
       return
     }
 
@@ -312,12 +324,14 @@ export default function SettingsPage() {
 
       const body = (await response.json().catch(() => ({}))) as { user?: HouseholdUser; error?: unknown }
       if (!response.ok) {
-        const message = typeof body.error === "string" ? body.error : "Unable to create account"
+        const message = typeof body.error === "string" ? body.error : t("Unable to create account")
         throw new Error(message)
       }
 
-      toast.success("Account created", {
-        description: body.user?.username ? `${body.user.username} can now sign in.` : undefined,
+      toast.success(t("Account created"), {
+        description: body.user?.username
+          ? t("{{username}} can now sign in.", { values: { username: body.user.username } })
+          : undefined,
       })
       setNewUserName("")
       setNewUserPassword("")
@@ -325,9 +339,9 @@ export default function SettingsPage() {
       await fetchHouseholdUsers()
       await fetchHouseholdActivity()
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to create account"
+      const message = error instanceof Error ? error.message : t("Unable to create account")
       setNewUserError(message)
-      toast.error("Unable to create account", { description: message })
+      toast.error(t("Unable to create account"), { description: message })
     } finally {
       setCreatingUser(false)
     }
@@ -337,7 +351,7 @@ export default function SettingsPage() {
     try {
       const response = await fetch("/api/sync/export", { cache: "no-store" })
       if (!response.ok) {
-        throw new Error("Unable to export data")
+        throw new Error(t("Unable to export data"))
       }
       const snapshot = await response.json()
       const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json" })
@@ -347,9 +361,9 @@ export default function SettingsPage() {
       anchor.download = `cashtrack-backup-${new Date().toISOString()}.json`
       anchor.click()
       URL.revokeObjectURL(url)
-      toast.success("Backup exported")
+      toast.success(t("Backup exported"))
     } catch (error) {
-      toast.error("Export failed", { description: error instanceof Error ? error.message : undefined })
+      toast.error(t("Export failed"), { description: error instanceof Error ? error.message : undefined })
     }
   }
 
@@ -365,14 +379,14 @@ export default function SettingsPage() {
       })
       if (!response.ok) {
         const body = await response.json().catch(() => ({}))
-        throw new Error(typeof body.error === "string" ? body.error : "Import failed")
+        throw new Error(typeof body.error === "string" ? body.error : t("Import failed"))
       }
       const data = (await response.json()) as { settings: AppSettingsPayload }
-      toast.success("Backup restored")
+      toast.success(t("Backup restored"))
       event.target.value = ""
       setSettings(data.settings)
     } catch (error) {
-      toast.error("Import failed", { description: error instanceof Error ? error.message : undefined })
+      toast.error(t("Import failed"), { description: error instanceof Error ? error.message : undefined })
     }
   }
 
@@ -387,15 +401,15 @@ export default function SettingsPage() {
       })
       const body = await response.json().catch(() => ({}))
       if (!response.ok) {
-        const message = typeof body.error === "string" ? body.error : "Unable to update password"
+        const message = typeof body.error === "string" ? body.error : t("Unable to update password")
         throw new Error(message)
       }
       setCurrentPassword("")
       setNewPassword("")
-      toast.success("Password updated")
+      toast.success(t("Password updated"))
       setSessionUser((prev) => (prev ? { ...prev, mustChangePassword: false } : prev))
     } catch (error) {
-      toast.error("Password update failed", {
+      toast.error(t("Password update failed"), {
         description: error instanceof Error ? error.message : undefined,
       })
     } finally {
@@ -405,17 +419,17 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <AppLayout title="Settings" description="Manage your CashTrack household preferences">
-        <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">Loading settings…</div>
+      <AppLayout title={t("Settings")} description={t("Manage your CashTrack household preferences")}> 
+        <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">{t("Loading settings…")}</div>
       </AppLayout>
     )
   }
 
   if (!settings) {
     return (
-      <AppLayout title="Settings" description="Manage your CashTrack household preferences">
+      <AppLayout title={t("Settings")} description={t("Manage your CashTrack household preferences")}>
         <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
-          Unable to load settings. Please refresh.
+          {t("Unable to load settings. Please refresh.")}
         </div>
       </AppLayout>
     )
@@ -426,23 +440,21 @@ export default function SettingsPage() {
 
   return (
     <AppLayout
-      title="Settings"
-      description="Manage household access, backups, and LAN sync for CashTrack"
+      title={t("Settings")}
+      description={t("Manage household access, backups, and LAN sync for CashTrack")}
     >
       <div className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle>Appearance</CardTitle>
-            <CardDescription>Choose between the light and dark interface.</CardDescription>
+            <CardTitle>{t("Appearance")}</CardTitle>
+            <CardDescription>{t("Choose between the light and dark interface.")}</CardDescription>
           </CardHeader>
           <CardContent className="flex items-center justify-between">
             <div>
               <Label className="text-sm font-medium" htmlFor="dark-mode-toggle">
-                Dark mode
+                {t("Dark mode")}
               </Label>
-              <p className="text-sm text-muted-foreground">
-                Switch the dashboard to a darker color palette.
-              </p>
+              <p className="text-sm text-muted-foreground">{t("Switch the dashboard to a darker color palette.")}</p>
             </div>
             <Switch
               id="dark-mode-toggle"
@@ -452,25 +464,25 @@ export default function SettingsPage() {
                 if (!canToggleTheme) return
                 setTheme(checked ? "dark" : "light")
               }}
-              aria-label="Toggle dark mode"
+              aria-label={t("Toggle dark mode")}
             />
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Household Account</CardTitle>
+            <CardTitle>{t("Household Account")}</CardTitle>
             <CardDescription>
-              Share these credentials with trusted family members and change the password together.
+              {t("Share these credentials with trusted family members and change the password together.")}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <Label className="text-xs uppercase text-muted-foreground">Default username</Label>
+                <Label className="text-xs uppercase text-muted-foreground">{t("Default username")}</Label>
                 <p className="font-mono text-lg">household</p>
               </div>
               <div>
-                <Label className="text-xs uppercase text-muted-foreground">Default password</Label>
+                <Label className="text-xs uppercase text-muted-foreground">{t("Default password")}</Label>
                 <p className="font-mono text-lg">cashtrack</p>
               </div>
             </div>
@@ -478,7 +490,7 @@ export default function SettingsPage() {
             <form className="space-y-4" onSubmit={handlePasswordChange}>
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="current-password">Current password</Label>
+                  <Label htmlFor="current-password">{t("Current password")}</Label>
                   <Input
                     id="current-password"
                     type="password"
@@ -488,7 +500,7 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="new-password">New password</Label>
+                  <Label htmlFor="new-password">{t("New password")}</Label>
                   <Input
                     id="new-password"
                     type="password"
@@ -502,11 +514,11 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between">
                 <div className="text-sm text-muted-foreground">
                   {sessionUser?.mustChangePassword
-                    ? "A password change is required before accessing all features."
-                    : "Use a memorable passphrase so the whole household can sign in."}
+                    ? t("A password change is required before accessing all features.")
+                    : t("Use a memorable passphrase so the whole household can sign in.")}
                 </div>
                 <Button type="submit" disabled={passwordLoading}>
-                  {passwordLoading ? "Updating…" : "Change password"}
+                  {passwordLoading ? t("Updating…") : t("Change password")}
                 </Button>
               </div>
             </form>
@@ -515,27 +527,27 @@ export default function SettingsPage() {
         {isHouseholdAdmin && (
           <Card>
             <CardHeader>
-              <CardTitle>Additional Accounts</CardTitle>
+              <CardTitle>{t("Additional Accounts")}</CardTitle>
               <CardDescription>
-                Give household members their own credentials while sharing the same budgets and transactions.
+                {t("Give household members their own credentials while sharing the same budgets and transactions.")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <form className="space-y-4" onSubmit={handleCreateHouseholdUser}>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="new-account-username">Username</Label>
+                    <Label htmlFor="new-account-username">{t("Username")}</Label>
                     <Input
                       id="new-account-username"
                       value={newUserName}
                       autoComplete="off"
                       onChange={(event) => setNewUserName(event.target.value)}
-                      placeholder="e.g. alex"
+                      placeholder={t("e.g. alex")}
                       required
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="new-account-password">Temporary password</Label>
+                    <Label htmlFor="new-account-password">{t("Temporary password")}</Label>
                     <Input
                       id="new-account-password"
                       type="password"
@@ -554,11 +566,11 @@ export default function SettingsPage() {
                       onCheckedChange={(checked) => setNewUserMustReset(checked)}
                     />
                     <Label htmlFor="new-account-reset" className="text-sm text-muted-foreground">
-                      Require the new account to change its password on first login
+                      {t("Require the new account to change its password on first login")}
                     </Label>
                   </div>
                   <Button type="submit" disabled={creatingUser}>
-                    {creatingUser ? "Creating…" : "Add account"}
+                    {creatingUser ? t("Creating…") : t("Add account")}
                   </Button>
                 </div>
                 {newUserError && <p className="text-sm text-red-500">{newUserError}</p>}
@@ -567,9 +579,9 @@ export default function SettingsPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-sm font-medium">Existing accounts</h3>
+                    <h3 className="text-sm font-medium">{t("Existing accounts")}</h3>
                     <p className="text-sm text-muted-foreground">
-                      Everyone listed below can sign in to manage the shared household finances.
+                      {t("Everyone listed below can sign in to manage the shared household finances.")}
                     </p>
                   </div>
                   <Button
@@ -580,7 +592,7 @@ export default function SettingsPage() {
                     disabled={usersLoading}
                   >
                     {usersLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    Refresh
+                    {t("Refresh")}
                   </Button>
                 </div>
                 {usersError && <p className="text-sm text-red-500">{usersError}</p>}
@@ -588,23 +600,23 @@ export default function SettingsPage() {
                   {usersLoading && householdUsers.length === 0 ? (
                     <div className="flex items-center justify-center rounded-md border border-dashed p-6 text-sm text-muted-foreground">
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Loading accounts…
+                      {t("Loading accounts…")}
                     </div>
                   ) : householdUsers.length === 0 ? (
                     <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-                      No additional accounts yet. Create one above to get started.
+                      {t("No additional accounts yet. Create one above to get started.")}
                     </div>
                   ) : (
                     householdUsers.map((user) => {
                       const badgeVariant = user.mustChangePassword ? "outline" : "secondary"
-                      const badgeText = user.mustChangePassword ? "Password reset pending" : "Active"
-                      const entityLabel = user.username === "household" ? "Shared" : undefined
+                      const badgeText = user.mustChangePassword ? t("Password reset pending") : t("Active")
+                      const entityLabel = user.username === "household" ? t("Shared") : undefined
                       return (
                         <div key={user.id} className="flex flex-col gap-2 rounded-md border bg-card p-3 md:flex-row md:items-center md:justify-between">
                           <div>
                             <p className="font-medium">{user.username}</p>
                             <p className="text-xs text-muted-foreground">
-                              Updated {describeRelativeTime(user.updatedAt)}
+                              {t("Updated {{time}}", { values: { time: describeRelativeTime(user.updatedAt) } })}
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
@@ -623,13 +635,15 @@ export default function SettingsPage() {
         {isHouseholdAdmin && (
           <Card>
             <CardHeader>
-              <CardTitle>Household Activity</CardTitle>
-              <CardDescription>Recent changes recorded for shared budgets, categories, and transactions.</CardDescription>
+              <CardTitle>{t("Household Activity")}</CardTitle>
+              <CardDescription>
+                {t("Recent changes recorded for shared budgets, categories, and transactions.")}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <p className="text-sm text-muted-foreground">
-                  Audit who imported transactions or tweaked budgets from each account.
+                  {t("Audit who imported transactions or tweaked budgets from each account.")}
                 </p>
                 <Button
                   type="button"
@@ -639,18 +653,18 @@ export default function SettingsPage() {
                   disabled={activityLoading}
                 >
                   {activityLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Refresh
+                  {t("Refresh")}
                 </Button>
               </div>
               {activityError && <p className="text-sm text-red-500">{activityError}</p>}
               {activityLoading && activity.length === 0 ? (
                 <div className="flex items-center justify-center rounded-md border border-dashed p-6 text-sm text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Loading activity…
+                  {t("Loading activity…")}
                 </div>
               ) : activity.length === 0 ? (
                 <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-                  Actions taken by household members will appear here.
+                  {t("Actions taken by household members will appear here.")}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -688,17 +702,17 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>LAN Sync</CardTitle>
+            <CardTitle>{t("LAN Sync")}</CardTitle>
             <CardDescription>
-              Allow trusted devices on your home network to exchange data directly using the sync endpoints.
+              {t("Allow trusted devices on your home network to exchange data directly using the sync endpoints.")}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <Label className="text-sm font-medium">Allow LAN sync requests</Label>
+                <Label className="text-sm font-medium">{t("Allow LAN sync requests")}</Label>
                 <p className="text-sm text-muted-foreground">
-                  When enabled, devices that authenticate with this account can pull and push changes over the LAN.
+                  {t("When enabled, devices that authenticate with this account can pull and push changes over the LAN.")}
                 </p>
               </div>
               <Switch
@@ -710,15 +724,14 @@ export default function SettingsPage() {
               />
             </div>
             <div>
-              <Label className="text-sm font-medium">Discovery address</Label>
+              <Label className="text-sm font-medium">{t("Discovery address")}</Label>
               <p className="font-mono text-sm">{settings.syncHost}</p>
               <p className="text-sm text-muted-foreground">
-                Use this base URL with <code>/api/sync/pull</code> and <code>/api/sync/push</code> when configuring other devices
-                or tools like Syncthing.
+                {t("Use this base URL with <code>/api/sync/pull</code> and <code>/api/sync/push</code> when configuring other devices or tools like Syncthing.")}
               </p>
             </div>
             <div>
-              <Label className="text-sm font-medium">Last successful sync</Label>
+              <Label className="text-sm font-medium">{t("Last successful sync")}</Label>
               <p className="text-sm text-muted-foreground">
                 {describeRelativeTime(settings.lastSuccessfulSyncAt)}
               </p>
@@ -728,15 +741,17 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Backups</CardTitle>
-            <CardDescription>Export encrypted-free JSON backups you can restore on any CashTrack device.</CardDescription>
+            <CardTitle>{t("Backups")}</CardTitle>
+            <CardDescription>
+              {t("Export encrypted-free JSON backups you can restore on any CashTrack device.")}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <Label className="text-sm font-medium">Enable automatic backups</Label>
+                <Label className="text-sm font-medium">{t("Enable automatic backups")}</Label>
                 <p className="text-sm text-muted-foreground">
-                  When enabled, run a scheduled backup on this device and prune old archives after the retention window.
+                  {t("When enabled, run a scheduled backup on this device and prune old archives after the retention window.")}
                 </p>
               </div>
               <Switch
@@ -749,7 +764,7 @@ export default function SettingsPage() {
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label className="text-sm font-medium">Automatic backup frequency</Label>
+                <Label className="text-sm font-medium">{t("Automatic backup frequency")}</Label>
                 <Select
                   value={backupFrequency}
                   onValueChange={(value: BackupFrequency) => {
@@ -761,15 +776,15 @@ export default function SettingsPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="off">Off</SelectItem>
-                    <SelectItem value="daily">Daily</SelectItem>
-                    <SelectItem value="weekly">Weekly</SelectItem>
-                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="off">{t("Off")}</SelectItem>
+                    <SelectItem value="daily">{t("Daily")}</SelectItem>
+                    <SelectItem value="weekly">{t("Weekly")}</SelectItem>
+                    <SelectItem value="monthly">{t("Monthly")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label className="text-sm font-medium">Retention (days)</Label>
+                <Label className="text-sm font-medium">{t("Retention (days)")}</Label>
                 <Input
                   type="number"
                   min={7}
@@ -788,17 +803,17 @@ export default function SettingsPage() {
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <Button type="button" onClick={handleExport}>
-                Export backup
+                {t("Export backup")}
               </Button>
               <div>
                 <Label className="text-sm font-medium" htmlFor="restore-file">
-                  Restore backup
+                  {t("Restore backup")}
                 </Label>
                 <Input id="restore-file" type="file" accept="application/json" onChange={handleImport} />
               </div>
             </div>
             <div className="text-sm text-muted-foreground">
-              Last backup: {describeRelativeTime(settings.lastBackupAt)}
+              {t("Last backup: {{time}}", { values: { time: describeRelativeTime(settings.lastBackupAt) } })}
             </div>
           </CardContent>
         </Card>

@@ -9,6 +9,7 @@ import { CategoryPieChart } from "@/components/charts/category-pie-chart"
 import { Plus, TrendingUp, TrendingDown, DollarSign, CreditCard, AlertTriangle } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { getDashboardAnalytics } from "@/lib/transactions/analytics"
+import { getTranslator, type Translator } from "@/lib/i18n/server"
 
 const currencyFormatter = new Intl.NumberFormat(undefined, {
   style: "currency",
@@ -24,13 +25,13 @@ function formatAbsoluteCurrency(value: number): string {
   return currencyFormatter.format(Math.abs(value))
 }
 
-function formatChangeText(value: number | null): string {
+function formatChangeText(t: Translator, value: number | null): string {
   if (value === null || Number.isNaN(value)) {
-    return "No previous month data"
+    return t("No previous month data")
   }
   const formatted = value.toFixed(1)
   const sign = value >= 0 ? "+" : ""
-  return `${sign}${formatted}% from last month`
+  return t("{{sign}}{{value}}% from last month", { values: { sign, value: formatted } })
 }
 
 function formatRelativeDate(date: string): string {
@@ -43,33 +44,41 @@ function formatRelativeDate(date: string): string {
 
 export default async function DashboardPage() {
   const analytics = await getDashboardAnalytics()
+  const t = getTranslator()
 
-  const incomeChangeText = formatChangeText(analytics.incomeChangePercent)
-  const expenseChangeText = formatChangeText(analytics.expenseChangePercent)
+  const incomeChangeText = formatChangeText(t, analytics.incomeChangePercent)
+  const expenseChangeText = formatChangeText(t, analytics.expenseChangePercent)
   const budgetUsageText =
     analytics.budgetUsagePercent === null
-      ? "Set category budgets to track progress"
-      : `Spent ${Math.round(analytics.budgetUsagePercent)}% of monthly budget`
+      ? t("Set category budgets to track progress")
+      : t("Spent {{percent}}% of monthly budget", {
+          values: { percent: Math.round(analytics.budgetUsagePercent).toString() },
+        })
 
   const budgetAlert = analytics.budgetWarning
   const alertClassName = budgetAlert
     ? "border-orange-200 bg-orange-50 dark:border-orange-900 dark:bg-orange-950"
     : "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950"
   const alertIconClass = budgetAlert ? "text-orange-600" : "text-emerald-600"
-  const alertTitle = budgetAlert ? "Budget Warning" : "On Track"
+  const alertTitle = budgetAlert ? t("Budget Warning") : t("On Track")
   const alertDescription = budgetAlert
-    ? `You're at ${Math.round(budgetAlert.usagePercent)}% of your ${budgetAlert.categoryName} budget this month. Plan upcoming purchases carefully.`
-    : "All categories are within budget so far this month. Keep up the great work!"
+    ? t("You're at {{usage}}% of your {{category}} budget this month. Plan upcoming purchases carefully.", {
+        values: {
+          usage: Math.round(budgetAlert.usagePercent).toString(),
+          category: budgetAlert.categoryName,
+        },
+      })
+    : t("All categories are within budget so far this month. Keep up the great work!")
 
   return (
     <AppLayout
-      title="Dashboard"
-      description="Overview of your finances"
+      title={t("Dashboard")}
+      description={t("Overview of your finances")}
       action={
         <Button size="sm" asChild>
           <Link href="/transactions">
             <Plus className="mr-2 h-4 w-4" />
-            Add Transaction
+            {t("Add Transaction")}
           </Link>
         </Button>
       }
@@ -84,19 +93,19 @@ export default async function DashboardPage() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Balance</CardTitle>
+              <CardTitle className="text-sm font-medium">{t("Total Balance")}</CardTitle>
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCurrency(analytics.balance)}</div>
               <p className="text-xs text-muted-foreground">
-                Net {formatCurrency(analytics.monthlyNet)} this month
+                {t("Net {{amount}} this month", { values: { amount: formatCurrency(analytics.monthlyNet) } })}
               </p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Monthly Income</CardTitle>
+              <CardTitle className="text-sm font-medium">{t("Monthly Income")}</CardTitle>
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -106,7 +115,7 @@ export default async function DashboardPage() {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Monthly Expenses</CardTitle>
+              <CardTitle className="text-sm font-medium">{t("Monthly Expenses")}</CardTitle>
               <TrendingDown className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -116,7 +125,7 @@ export default async function DashboardPage() {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Budget Remaining</CardTitle>
+              <CardTitle className="text-sm font-medium">{t("Budget Remaining")}</CardTitle>
               <CreditCard className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -129,9 +138,11 @@ export default async function DashboardPage() {
         <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle>Spending Trend</CardTitle>
+              <CardTitle>{t("Spending Trend")}</CardTitle>
               <CardDescription>
-                Income vs expenses over the last {analytics.trend.length} months
+                {t("Income vs expenses over the last {{months}} months", {
+                  values: { months: analytics.trend.length.toString() },
+                })}
               </CardDescription>
             </CardHeader>
             <CardContent className="pl-2">
@@ -140,8 +151,8 @@ export default async function DashboardPage() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle>Spending by Category</CardTitle>
-              <CardDescription>Current month breakdown</CardDescription>
+              <CardTitle>{t("Spending by Category")}</CardTitle>
+              <CardDescription>{t("Current month breakdown")}</CardDescription>
             </CardHeader>
             <CardContent>
               <CategoryPieChart data={analytics.categoryBreakdown} />
@@ -152,14 +163,12 @@ export default async function DashboardPage() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
           <Card className="col-span-4">
             <CardHeader>
-              <CardTitle>Recent Transactions</CardTitle>
-              <CardDescription>Your latest financial activity</CardDescription>
+              <CardTitle>{t("Recent Transactions")}</CardTitle>
+              <CardDescription>{t("Your latest financial activity")}</CardDescription>
             </CardHeader>
             <CardContent>
               {analytics.recentTransactions.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Add your first transaction to see it here.
-                </p>
+                <p className="text-sm text-muted-foreground">{t("Add your first transaction to see it here.")}</p>
               ) : (
                 <div className="space-y-4">
                   {analytics.recentTransactions.map((transaction) => {
@@ -190,13 +199,13 @@ export default async function DashboardPage() {
           </Card>
           <Card className="col-span-3">
             <CardHeader>
-              <CardTitle>Budget Overview</CardTitle>
-              <CardDescription>Monthly spending by category</CardDescription>
+              <CardTitle>{t("Budget Overview")}</CardTitle>
+              <CardDescription>{t("Monthly spending by category")}</CardDescription>
             </CardHeader>
             <CardContent>
               {analytics.budgetOverview.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  Set category budgets to monitor your progress throughout the month.
+                  {t("Set category budgets to monitor your progress throughout the month.")}
                 </p>
               ) : (
                 <div className="space-y-4">
@@ -219,8 +228,8 @@ export default async function DashboardPage() {
                         </div>
                         <p className="text-xs text-muted-foreground">
                           {item.budget > 0
-                            ? `${usagePercent}% of budget used`
-                            : "No budget set"}
+                            ? t("{{value}}% of budget used", { values: { value: usagePercent.toString() } })
+                            : t("No budget set")}
                         </p>
                       </div>
                     )

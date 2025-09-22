@@ -2,6 +2,8 @@
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts"
 
+import { useTranslations } from "@/components/language-provider"
+
 const DEFAULT_DATA = [
   { month: "Jul", income: 4200, expenses: 2325 },
   { month: "Aug", income: 4200, expenses: 2595 },
@@ -20,14 +22,16 @@ function formatCurrency(value: number) {
 }
 
 export function IncomeExpenseChart({ data }: IncomeExpenseChartProps) {
+  const { t } = useTranslations()
   const usingFallback = !data
   const chartData = usingFallback ? DEFAULT_DATA : data
   const hasData = chartData.some((point) => point.income !== 0 || point.expenses !== 0)
+  const axisTickStyle = { fill: "hsl(var(--muted-foreground))", fontSize: 12 }
 
   if (!usingFallback && !hasData) {
     return (
       <div className="flex h-[350px] items-center justify-center text-sm text-muted-foreground">
-        Add transactions to compare income and expenses.
+        {t("Add transactions to compare income and expenses.")}
       </div>
     )
   }
@@ -35,12 +39,12 @@ export function IncomeExpenseChart({ data }: IncomeExpenseChartProps) {
   return (
     <ResponsiveContainer width="100%" height={400}>
       <BarChart data={chartData}>
-        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-        <XAxis dataKey="month" axisLine={false} tickLine={false} className="text-xs fill-muted-foreground" />
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+        <XAxis dataKey="month" axisLine={false} tickLine={false} tick={axisTickStyle} />
         <YAxis
           axisLine={false}
           tickLine={false}
-          className="text-xs fill-muted-foreground"
+          tick={axisTickStyle}
           tickFormatter={(value) => formatCurrency(Number(value))}
         />
         <Tooltip
@@ -60,14 +64,14 @@ export function IncomeExpenseChart({ data }: IncomeExpenseChartProps) {
                     {payload.map((entry, index) => (
                       <div key={index} className="flex items-center justify-between gap-2">
                         <span className="text-sm" style={{ color: entry.color }}>
-                          {entry.name}:
+                          {`${t(entry.name ?? "")}:`}
                         </span>
                         <span className="font-bold">{formatCurrency(Number(entry.value ?? 0))}</span>
                       </div>
                     ))}
                     {typeof net === "number" && (
                       <div className="flex items-center justify-between gap-2 border-t pt-2">
-                        <span className="text-sm font-medium">Net:</span>
+                        <span className="text-sm font-medium">{t("Net:")}</span>
                         <span className={net >= 0 ? "font-bold text-green-600" : "font-bold text-red-600"}>
                           {formatCurrency(net)}
                         </span>
@@ -80,9 +84,11 @@ export function IncomeExpenseChart({ data }: IncomeExpenseChartProps) {
             return null
           }}
         />
-        <Legend />
-        <Bar dataKey="income" fill="hsl(var(--chart-1))" name="Income" radius={[4, 4, 0, 0]} />
-        <Bar dataKey="expenses" fill="hsl(var(--chart-2))" name="Expenses" radius={[4, 4, 0, 0]} />
+        <Legend
+          formatter={(value: string) => <span style={{ color: "hsl(var(--muted-foreground))" }}>{t(value)}</span>}
+        />
+        <Bar dataKey="income" fill="hsl(var(--chart-1))" name={t("Income")} radius={[4, 4, 0, 0]} />
+        <Bar dataKey="expenses" fill="hsl(var(--chart-2))" name={t("Expenses")} radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   )

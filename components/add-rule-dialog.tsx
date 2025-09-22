@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
+import { useTranslations } from "@/components/language-provider"
 
 export interface RuleFormValues {
   name: string
@@ -51,6 +52,7 @@ const createDefaultValues = (categories: CategoryOption[]): RuleFormValues => ({
 })
 
 export function AddRuleDialog({ open, mode, onOpenChange, onSubmit, categories, initialValues }: AddRuleDialogProps) {
+  const { t } = useTranslations()
   const [formData, setFormData] = useState<RuleFormValues>(() => createDefaultValues(categories))
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -76,13 +78,13 @@ export function AddRuleDialog({ open, mode, onOpenChange, onSubmit, categories, 
 
     try {
       if (!formData.name.trim()) {
-        throw new Error("Rule name is required")
+        throw new Error(t("Rule name is required"))
       }
       if (!formData.categoryId) {
-        throw new Error("Please select a category")
+        throw new Error(t("Please select a category"))
       }
       if (!formData.pattern.trim()) {
-        throw new Error("Pattern is required")
+        throw new Error(t("Pattern is required"))
       }
 
       await onSubmit(formData)
@@ -91,7 +93,7 @@ export function AddRuleDialog({ open, mode, onOpenChange, onSubmit, categories, 
       }
       onOpenChange(false)
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Failed to save rule")
+      setError(submitError instanceof Error ? submitError.message : t("Failed to save rule"))
     } finally {
       setIsSubmitting(false)
     }
@@ -101,19 +103,19 @@ export function AddRuleDialog({ open, mode, onOpenChange, onSubmit, categories, 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>{mode === "create" ? "Add Automation Rule" : "Edit Automation Rule"}</DialogTitle>
+          <DialogTitle>{mode === "create" ? t("Add Automation Rule") : t("Edit Automation Rule")}</DialogTitle>
           <DialogDescription>
             {mode === "create"
-              ? "Create a rule to automatically categorize transactions"
-              : "Update the automation rule configuration"}
+              ? t("Create a rule to automatically categorize transactions")
+              : t("Update the automation rule configuration")}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="rule-name">Rule Name</Label>
+            <Label htmlFor="rule-name">{t("Rule Name")}</Label>
             <Input
               id="rule-name"
-              placeholder="e.g., Grocery Stores"
+              placeholder={t("e.g., Grocery Stores")}
               value={formData.name}
               onChange={(event) => setFormData((previous) => ({ ...previous, name: event.target.value }))}
               required
@@ -122,13 +124,13 @@ export function AddRuleDialog({ open, mode, onOpenChange, onSubmit, categories, 
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="rule-category">Category</Label>
+              <Label htmlFor="rule-category">{t("Category")}</Label>
               <Select
                 value={formData.categoryId}
                 onValueChange={(value) => setFormData((previous) => ({ ...previous, categoryId: value }))}
               >
                 <SelectTrigger id="rule-category">
-                  <SelectValue placeholder="Select category" />
+                  <SelectValue placeholder={t("Select category") ?? undefined} />
                 </SelectTrigger>
                 <SelectContent>
                   {categoryOptions.map((category) => (
@@ -140,7 +142,7 @@ export function AddRuleDialog({ open, mode, onOpenChange, onSubmit, categories, 
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="rule-type">Match Type</Label>
+              <Label htmlFor="rule-type">{t("Match Type")}</Label>
               <Select
                 value={formData.type}
                 onValueChange={(value: RuleFormValues["type"]) => setFormData((previous) => ({ ...previous, type: value }))}
@@ -149,35 +151,33 @@ export function AddRuleDialog({ open, mode, onOpenChange, onSubmit, categories, 
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="contains">Contains</SelectItem>
-                  <SelectItem value="starts_with">Starts With</SelectItem>
-                  <SelectItem value="ends_with">Ends With</SelectItem>
-                  <SelectItem value="exact">Exact Match</SelectItem>
-                  <SelectItem value="regex">Regular Expression</SelectItem>
+                  <SelectItem value="contains">{t("Contains")}</SelectItem>
+                  <SelectItem value="starts_with">{t("Starts With")}</SelectItem>
+                  <SelectItem value="ends_with">{t("Ends With")}</SelectItem>
+                  <SelectItem value="exact">{t("Exact Match")}</SelectItem>
+                  <SelectItem value="regex">{t("Regular Expression")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="rule-pattern">Pattern</Label>
+            <Label htmlFor="rule-pattern">{t("Pattern")}</Label>
             <Input
               id="rule-pattern"
-              placeholder="e.g., grocery|supermarket|walmart"
+              placeholder={t("e.g., grocery|supermarket|walmart")}
               value={formData.pattern}
               onChange={(event) => setFormData((previous) => ({ ...previous, pattern: event.target.value }))}
               required
             />
-            <p className="text-xs text-muted-foreground">
-              Use | to separate multiple patterns (e.g., &quot;starbucks|coffee|cafe&quot;)
-            </p>
+            <p className="text-xs text-muted-foreground">{t('Use | to separate multiple patterns (e.g., "starbucks|coffee|cafe")')}</p>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="rule-description">Description (Optional)</Label>
+            <Label htmlFor="rule-description">{t("Description (Optional)")}</Label>
             <Textarea
               id="rule-description"
-              placeholder="Describe what this rule matches..."
+              placeholder={t("Describe what this rule matches...")}
               value={formData.description}
               onChange={(event) => setFormData((previous) => ({ ...previous, description: event.target.value }))}
               rows={2}
@@ -186,7 +186,7 @@ export function AddRuleDialog({ open, mode, onOpenChange, onSubmit, categories, 
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="rule-priority">Priority</Label>
+              <Label htmlFor="rule-priority">{t("Priority")}</Label>
               <Select
                 value={formData.priority}
                 onValueChange={(value) => setFormData((previous) => ({ ...previous, priority: value }))}
@@ -195,14 +195,14 @@ export function AddRuleDialog({ open, mode, onOpenChange, onSubmit, categories, 
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">High (1)</SelectItem>
-                  <SelectItem value="2">Medium (2)</SelectItem>
-                  <SelectItem value="3">Low (3)</SelectItem>
+                  <SelectItem value="1">{t("High (1)")}</SelectItem>
+                  <SelectItem value="2">{t("Medium (2)")}</SelectItem>
+                  <SelectItem value="3">{t("Low (3)")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="rule-active">Active</Label>
+              <Label htmlFor="rule-active">{t("Active")}</Label>
               <div className="flex items-center space-x-2 pt-2">
                 <Switch
                   id="rule-active"
@@ -210,7 +210,7 @@ export function AddRuleDialog({ open, mode, onOpenChange, onSubmit, categories, 
                   onCheckedChange={(checked) => setFormData((previous) => ({ ...previous, isActive: checked }))}
                 />
                 <Label htmlFor="rule-active" className="text-sm">
-                  {formData.isActive ? "Enabled" : "Disabled"}
+                  {formData.isActive ? t("Enabled") : t("Disabled")}
                 </Label>
               </div>
             </div>
@@ -220,10 +220,10 @@ export function AddRuleDialog({ open, mode, onOpenChange, onSubmit, categories, 
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Saving..." : mode === "create" ? "Add Rule" : "Save Changes"}
+              {isSubmitting ? t("Saving…") : mode === "create" ? t("Add Rule") : t("Save Changes")}
             </Button>
           </DialogFooter>
         </form>

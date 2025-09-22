@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Edit, Loader2, Plus, Search, Target, Trash2, Zap } from "lucide-react"
+import { useTranslations } from "@/components/language-provider"
 
 interface Category {
   id: string
@@ -38,14 +39,6 @@ interface Rule {
   matchCount: number
 }
 
-const matchTypeLabels: Record<RuleMatchType, string> = {
-  contains: "Contains",
-  starts_with: "Starts With",
-  ends_with: "Ends With",
-  exact: "Exact",
-  regex: "Regex",
-}
-
 function formatCurrency(value: number) {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
@@ -63,17 +56,30 @@ function sortRules(list: Rule[]) {
   })
 }
 
-function formatReprocessedMessage(count: number) {
-  if (count === 0) {
-    return "No existing transactions were recategorized."
-  }
-  if (count === 1) {
-    return "1 transaction was recategorized."
-  }
-  return `${count} transactions were recategorized.`
-}
-
 export default function CategoriesPage() {
+  const { t } = useTranslations()
+  const matchTypeLabels = useMemo<Record<RuleMatchType, string>>(
+    () => ({
+      contains: t("Contains"),
+      starts_with: t("Starts With"),
+      ends_with: t("Ends With"),
+      exact: t("Exact Match"),
+      regex: t("Regular Expression"),
+    }),
+    [t],
+  )
+  const formatReprocessedMessage = useCallback(
+    (count: number) => {
+      if (count === 0) {
+        return t("No existing transactions were recategorized.")
+      }
+      if (count === 1) {
+        return t("1 transaction was recategorized.")
+      }
+      return t("{{count}} transactions were recategorized.", { values: { count: count.toString() } })
+    },
+    [t],
+  )
   const [searchTerm, setSearchTerm] = useState("")
   const [categories, setCategories] = useState<Category[]>([])
   const [rules, setRules] = useState<Rule[]>([])
@@ -100,19 +106,19 @@ export default function CategoriesPage() {
       const response = await fetch("/api/categories", { cache: "no-store" })
       if (!response.ok) {
         const body = await response.json().catch(() => ({} as { error?: unknown }))
-        const message = typeof body.error === "string" ? body.error : "Failed to load categories"
+        const message = typeof body.error === "string" ? body.error : t("Failed to load categories")
         throw new Error(message)
       }
       const data = (await response.json()) as { categories: Category[] }
       setCategories(sortCategories(data.categories))
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to load categories"
+      const message = error instanceof Error ? error.message : t("Failed to load categories")
       setCategoriesError(message)
-      toast.error("Unable to load categories", { description: message })
+      toast.error(t("Unable to load categories"), { description: message })
     } finally {
       setCategoriesLoading(false)
     }
-  }, [])
+  }, [t])
 
   const fetchRules = useCallback(async () => {
     setRulesLoading(true)
@@ -121,19 +127,19 @@ export default function CategoriesPage() {
       const response = await fetch("/api/categories/rules", { cache: "no-store" })
       if (!response.ok) {
         const body = await response.json().catch(() => ({} as { error?: unknown }))
-        const message = typeof body.error === "string" ? body.error : "Failed to load rules"
+        const message = typeof body.error === "string" ? body.error : t("Failed to load rules")
         throw new Error(message)
       }
       const data = (await response.json()) as { rules: Rule[] }
       setRules(sortRules(data.rules))
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to load rules"
+      const message = error instanceof Error ? error.message : t("Failed to load rules")
       setRulesError(message)
-      toast.error("Unable to load automation rules", { description: message })
+      toast.error(t("Unable to load automation rules"), { description: message })
     } finally {
       setRulesLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     fetchCategories()
@@ -238,7 +244,7 @@ export default function CategoriesPage() {
     setRuleDialogMode("create")
     setRuleDialogSelection(null)
     if (categories.length === 0) {
-      toast.info("Add a category before creating rules")
+      toast.info(t("Add a category before creating rules"))
       return
     }
     setRuleDialogOpen(true)
@@ -274,7 +280,7 @@ export default function CategoriesPage() {
   const handleCategorySubmit = async (values: CategoryFormValues) => {
     const monthlyBudget = Number.parseFloat(values.monthlyBudget)
     if (Number.isNaN(monthlyBudget) || monthlyBudget < 0) {
-      throw new Error("Budget must be a positive number")
+      throw new Error(t("Budget must be a positive number"))
     }
 
     const payload = {
@@ -293,13 +299,13 @@ export default function CategoriesPage() {
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({} as { error?: unknown }))
-        const message = typeof body.error === "string" ? body.error : "Unable to create category"
+        const message = typeof body.error === "string" ? body.error : t("Unable to create category")
         throw new Error(message)
       }
 
       const data = (await response.json()) as { category: Category }
       setCategories((previous) => sortCategories([...previous, data.category]))
-      toast.success("Category added")
+      toast.success(t("Category added"))
     } else if (categoryDialogSelection) {
       const response = await fetch(`/api/categories/${categoryDialogSelection.id}`, {
         method: "PUT",
@@ -309,7 +315,7 @@ export default function CategoriesPage() {
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({} as { error?: unknown }))
-        const message = typeof body.error === "string" ? body.error : "Unable to update category"
+        const message = typeof body.error === "string" ? body.error : t("Unable to update category")
         throw new Error(message)
       }
 
@@ -318,14 +324,16 @@ export default function CategoriesPage() {
         sortCategories(previous.map((category) => (category.id === data.category.id ? data.category : category))),
       )
       setBudgetCategory((previous) => (previous?.id === data.category.id ? data.category : previous))
-      toast.success("Category updated")
+      toast.success(t("Category updated"))
       await fetchRules()
     }
   }
 
   const handleDeleteCategory = async (category: Category) => {
     const confirmed = window.confirm(
-      `Delete category "${category.name}"? Transactions will be marked as Uncategorized and related rules removed.`,
+      t('Delete category "{{name}}"? Transactions will be marked as {{uncategorized}} and related rules removed.', {
+        values: { name: category.name, uncategorized: t("Uncategorized") },
+      }),
     )
     if (!confirmed) {
       return
@@ -335,23 +343,23 @@ export default function CategoriesPage() {
       const response = await fetch(`/api/categories/${category.id}`, { method: "DELETE" })
       if (!response.ok) {
         const body = await response.json().catch(() => ({} as { error?: unknown }))
-        const message = typeof body.error === "string" ? body.error : "Unable to delete category"
+        const message = typeof body.error === "string" ? body.error : t("Unable to delete category")
         throw new Error(message)
       }
 
       setCategories((previous) => sortCategories(previous.filter((entry) => entry.id !== category.id)))
       setBudgetCategory((previous) => (previous?.id === category.id ? null : previous))
-      toast.success("Category deleted")
+      toast.success(t("Category deleted"))
       await fetchRules()
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to delete category"
-      toast.error("Delete failed", { description: message })
+      const message = error instanceof Error ? error.message : t("Unable to delete category")
+      toast.error(t("Delete failed"), { description: message })
     }
   }
 
   const handleBudgetSubmit = async (newBudget: number) => {
     if (!budgetCategory) {
-      throw new Error("No category selected")
+      throw new Error(t("No category selected"))
     }
 
     const response = await fetch(`/api/categories/${budgetCategory.id}`, {
@@ -362,7 +370,7 @@ export default function CategoriesPage() {
 
     if (!response.ok) {
       const body = await response.json().catch(() => ({} as { error?: unknown }))
-      const message = typeof body.error === "string" ? body.error : "Unable to update budget"
+      const message = typeof body.error === "string" ? body.error : t("Unable to update budget")
       throw new Error(message)
     }
 
@@ -372,7 +380,7 @@ export default function CategoriesPage() {
     )
     setBudgetCategory(data.category)
     setCategoryDialogSelection((previous) => (previous?.id === data.category.id ? data.category : previous))
-    toast.success("Budget updated")
+    toast.success(t("Budget updated"))
   }
 
   const handleRuleSubmit = async (values: RuleFormValues) => {
@@ -387,11 +395,11 @@ export default function CategoriesPage() {
     }
 
     if (!payload.categoryId) {
-      throw new Error("Please select a category")
+      throw new Error(t("Please select a category"))
     }
 
     if (Number.isNaN(payload.priority) || payload.priority < 1) {
-      throw new Error("Priority must be a positive number")
+      throw new Error(t("Priority must be a positive number"))
     }
 
     if (ruleDialogMode === "create") {
@@ -403,7 +411,7 @@ export default function CategoriesPage() {
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({} as { error?: unknown }))
-        const message = typeof body.error === "string" ? body.error : "Unable to create rule"
+        const message = typeof body.error === "string" ? body.error : t("Unable to create rule")
         throw new Error(message)
       }
 
@@ -412,7 +420,7 @@ export default function CategoriesPage() {
       if (data.reprocessedCount > 0) {
         void fetchCategories()
       }
-      toast.success("Rule created", { description: formatReprocessedMessage(data.reprocessedCount) })
+      toast.success(t("Rule created"), { description: formatReprocessedMessage(data.reprocessedCount) })
     } else if (ruleDialogSelection) {
       const response = await fetch(`/api/categories/rules/${ruleDialogSelection.id}`, {
         method: "PUT",
@@ -422,7 +430,7 @@ export default function CategoriesPage() {
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({} as { error?: unknown }))
-        const message = typeof body.error === "string" ? body.error : "Unable to update rule"
+        const message = typeof body.error === "string" ? body.error : t("Unable to update rule")
         throw new Error(message)
       }
 
@@ -431,12 +439,12 @@ export default function CategoriesPage() {
       if (data.reprocessedCount > 0) {
         void fetchCategories()
       }
-      toast.success("Rule updated", { description: formatReprocessedMessage(data.reprocessedCount) })
+      toast.success(t("Rule updated"), { description: formatReprocessedMessage(data.reprocessedCount) })
     }
   }
 
   const handleDeleteRule = async (rule: Rule) => {
-    const confirmed = window.confirm(`Delete rule "${rule.name}"?`)
+    const confirmed = window.confirm(t('Delete rule "{{name}}"?', { values: { name: rule.name } }))
     if (!confirmed) {
       return
     }
@@ -445,15 +453,15 @@ export default function CategoriesPage() {
       const response = await fetch(`/api/categories/rules/${rule.id}`, { method: "DELETE" })
       if (!response.ok) {
         const body = await response.json().catch(() => ({} as { error?: unknown }))
-        const message = typeof body.error === "string" ? body.error : "Unable to delete rule"
+        const message = typeof body.error === "string" ? body.error : t("Unable to delete rule")
         throw new Error(message)
       }
 
       setRules((previous) => previous.filter((entry) => entry.id !== rule.id))
-      toast.success("Rule deleted")
+      toast.success(t("Rule deleted"))
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to delete rule"
-      toast.error("Delete failed", { description: message })
+      const message = error instanceof Error ? error.message : t("Unable to delete rule")
+      toast.error(t("Delete failed"), { description: message })
     }
   }
 
@@ -463,7 +471,7 @@ export default function CategoriesPage() {
         <div className="flex h-32 items-center justify-center rounded-lg border">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading categories...
+            {t("Loading categories...")}
           </div>
         </div>
       )
@@ -480,7 +488,7 @@ export default function CategoriesPage() {
     if (filteredCategories.length === 0) {
       return (
         <div className="flex h-32 items-center justify-center rounded-lg border">
-          <p className="text-sm text-muted-foreground">No categories found. Try adjusting your search.</p>
+          <p className="text-sm text-muted-foreground">{t("No categories found. Try adjusting your search.")}</p>
         </div>
       )
     }
@@ -514,7 +522,9 @@ export default function CategoriesPage() {
                     </div>
                     <div>
                       <CardTitle className="text-lg">{category.name}</CardTitle>
-                      <CardDescription>{category.transactionCount} transactions</CardDescription>
+                      <CardDescription>
+                        {t("{{count}} transactions", { values: { count: category.transactionCount.toString() } })}
+                      </CardDescription>
                     </div>
                   </div>
                   <div className="flex gap-1">
@@ -533,16 +543,16 @@ export default function CategoriesPage() {
               <CardContent>
                 <div className="space-y-3">
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Budget</span>
+                    <span className="text-muted-foreground">{t("Budget")}</span>
                     <span className="font-medium">{formatCurrency(category.monthlyBudget)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Spent</span>
+                    <span className="text-muted-foreground">{t("Spent")}</span>
                     <span className={`font-medium ${spentColor}`}>{formatCurrency(category.spent)}</span>
                   </div>
                   <div className="space-y-2">
                     <div className="flex justify-between text-xs">
-                      <span>Progress</span>
+                      <span>{t("Progress")}</span>
                       <span>{Math.min(progress, 999).toFixed(0)}%</span>
                     </div>
                     <div className="h-2 w-full rounded-full bg-secondary">
@@ -553,7 +563,7 @@ export default function CategoriesPage() {
                     </div>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Remaining</span>
+                    <span className="text-muted-foreground">{t("Remaining")}</span>
                     <span className={`font-medium ${remainingColor}`}>
                       {remaining >= 0 ? formatCurrency(remaining) : `-${formatCurrency(Math.abs(remaining))}`}
                     </span>
@@ -573,7 +583,7 @@ export default function CategoriesPage() {
         <div className="flex h-32 items-center justify-center rounded-lg border">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading automation rules...
+            {t("Loading automation rules...")}
           </div>
         </div>
       )
@@ -590,7 +600,7 @@ export default function CategoriesPage() {
     if (filteredRules.length === 0) {
       return (
         <div className="flex h-32 items-center justify-center rounded-lg border">
-          <p className="text-sm text-muted-foreground">No automation rules found. Try adjusting your search.</p>
+          <p className="text-sm text-muted-foreground">{t("No automation rules found. Try adjusting your search.")}</p>
         </div>
       )
     }
@@ -602,17 +612,20 @@ export default function CategoriesPage() {
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h4 className="font-medium">{rule.name}</h4>
-                <Badge variant={rule.isActive ? "default" : "secondary"}>{rule.isActive ? "Active" : "Inactive"}</Badge>
-                <Badge variant="outline">Priority {rule.priority}</Badge>
+                <Badge variant={rule.isActive ? "default" : "secondary"}>{rule.isActive ? t("Active") : t("Inactive")}</Badge>
+                <Badge variant="outline">{t("Priority {{value}}", { values: { value: rule.priority.toString() } })}</Badge>
               </div>
               <p className="text-sm text-muted-foreground">
-                Category: <span className="font-medium">{rule.categoryName}</span>
+                {t("Category:")} <span className="font-medium">{rule.categoryName}</span>
               </p>
               <p className="text-sm text-muted-foreground">
-                Pattern ({matchTypeLabels[rule.type]}): <code className="rounded bg-muted px-1 text-xs">{rule.pattern}</code>
+                {t("Pattern ({{type}}):", { values: { type: matchTypeLabels[rule.type] } })}{" "}
+                <code className="rounded bg-muted px-1 text-xs">{rule.pattern}</code>
               </p>
               {rule.description && <p className="text-xs text-muted-foreground">{rule.description}</p>}
-              <p className="text-xs text-muted-foreground">Matched {rule.matchCount} transactions</p>
+              <p className="text-xs text-muted-foreground">
+                {t("Matched {{count}} transactions", { values: { count: rule.matchCount.toString() } })}
+              </p>
             </div>
             <div className="flex gap-2">
               <Button variant="ghost" size="sm" onClick={() => openEditRuleDialog(rule)}>
@@ -630,17 +643,17 @@ export default function CategoriesPage() {
 
   return (
     <AppLayout
-      title="Categories & Rules"
-      description="Manage spending categories and automation rules"
+      title={t("Categories & Rules")}
+      description={t("Manage spending categories and automation rules")}
       action={
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={openCreateRuleDialog}>
             <Zap className="mr-2 h-4 w-4" />
-            Add Rule
+            {t("Add Rule")}
           </Button>
           <Button size="sm" onClick={openCreateCategoryDialog}>
             <Plus className="mr-2 h-4 w-4" />
-            Add Category
+            {t("Add Category")}
           </Button>
         </div>
       }
@@ -648,8 +661,8 @@ export default function CategoriesPage() {
       <div className="space-y-6">
         <Tabs defaultValue="categories" className="space-y-4">
           <TabsList>
-            <TabsTrigger value="categories">Categories</TabsTrigger>
-            <TabsTrigger value="rules">Automation Rules</TabsTrigger>
+            <TabsTrigger value="categories">{t("Categories")}</TabsTrigger>
+            <TabsTrigger value="rules">{t("Automation Rules")}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="categories" className="space-y-4">
@@ -658,7 +671,7 @@ export default function CategoriesPage() {
                 <div className="relative">
                   <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search categories..."
+                    placeholder={t("Search categories...")}
                     value={searchTerm}
                     onChange={(event) => setSearchTerm(event.target.value)}
                     className="pl-8"
@@ -676,7 +689,7 @@ export default function CategoriesPage() {
                 <div className="relative">
                   <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search rules..."
+                    placeholder={t("Search rules...")}
                     value={searchTerm}
                     onChange={(event) => setSearchTerm(event.target.value)}
                     className="pl-8"
@@ -687,9 +700,9 @@ export default function CategoriesPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Automation Rules</CardTitle>
+                <CardTitle>{t("Automation Rules")}</CardTitle>
                 <CardDescription>
-                  Rules automatically categorize transactions based on patterns in descriptions
+                  {t("Rules automatically categorize transactions based on patterns in descriptions")}
                 </CardDescription>
               </CardHeader>
               <CardContent>{renderRules()}</CardContent>

@@ -8,30 +8,32 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { LayoutDashboard, Receipt, Tags, BarChart3, Settings, Menu, DollarSign } from "lucide-react"
+import { useTranslations } from "@/components/language-provider"
+import { LanguageSwitcher } from "@/components/language-switcher"
 
 const navigation = [
   {
-    name: "Dashboard",
+    label: "Dashboard",
     href: "/",
     icon: LayoutDashboard,
   },
   {
-    name: "Transactions",
+    label: "Transactions",
     href: "/transactions",
     icon: Receipt,
   },
   {
-    name: "Categories",
+    label: "Categories",
     href: "/categories",
     icon: Tags,
   },
   {
-    name: "Reports",
+    label: "Reports",
     href: "/reports",
     icon: BarChart3,
   },
   {
-    name: "Settings",
+    label: "Settings",
     href: "/settings",
     icon: Settings,
   },
@@ -43,6 +45,7 @@ interface SidebarProps {
 
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname()
+  const { t } = useTranslations()
 
   return (
     <div className={cn("pb-12", className)}>
@@ -55,17 +58,20 @@ export function Sidebar({ className }: SidebarProps) {
           <div className="space-y-1 mt-4">
             {navigation.map((item) => (
               <Button
-                key={item.name}
+                key={item.href}
                 variant={pathname === item.href ? "secondary" : "ghost"}
                 className="w-full justify-start"
                 asChild
               >
                 <Link href={item.href}>
                   <item.icon className="mr-2 h-4 w-4" />
-                  {item.name}
+                  {t(item.label)}
                 </Link>
               </Button>
             ))}
+          </div>
+          <div className="mt-6 hidden lg:block">
+            <LanguageSwitcher className="w-full" />
           </div>
         </div>
       </div>
@@ -75,6 +81,7 @@ export function Sidebar({ className }: SidebarProps) {
 
 export function MobileSidebar() {
   const [open, setOpen] = useState(false)
+  const { t } = useTranslations()
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -84,12 +91,15 @@ export function MobileSidebar() {
           className="mr-2 px-0 text-base hover:bg-transparent focus-visible:bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 md:hidden"
         >
           <Menu className="h-6 w-6" />
-          <span className="sr-only">Toggle Menu</span>
+          <span className="sr-only">{t("Toggle Menu")}</span>
         </Button>
       </SheetTrigger>
       <SheetContent side="left" className="pr-0">
         <ScrollArea className="my-4 h-[calc(100vh-8rem)] pb-10 pl-6">
-          <Sidebar />
+          <div className="space-y-4">
+            <Sidebar />
+            <LanguageSwitcher className="w-full" />
+          </div>
         </ScrollArea>
       </SheetContent>
     </Sheet>
