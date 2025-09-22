@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import type { TransactionStatus, TransactionType } from "@/lib/transactions/types"
+import { useTranslations } from "@/components/language-provider"
 
 interface CategoryOption {
   id: string
@@ -66,6 +67,7 @@ export function TransactionFormDialog({
   initialValues,
   categories,
 }: TransactionFormDialogProps) {
+  const { t } = useTranslations()
   const [formData, setFormData] = useState<TransactionFormValues>(createDefaultValues)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -87,10 +89,10 @@ export function TransactionFormDialog({
     setIsSubmitting(true)
     try {
       if (!formData.categoryName || !formData.account) {
-        throw new Error("Please select a category and account")
+        throw new Error(t("Please select a category and account"))
       }
       if (!formData.amount) {
-        throw new Error("Amount is required")
+        throw new Error(t("Amount is required"))
       }
 
       const payload: TransactionFormValues = {
@@ -103,7 +105,7 @@ export function TransactionFormDialog({
       setFormData(createDefaultValues())
       onOpenChange(false)
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Failed to save transaction")
+      setError(submitError instanceof Error ? submitError.message : t("Failed to save transaction"))
     } finally {
       setIsSubmitting(false)
     }
@@ -113,17 +115,17 @@ export function TransactionFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
-          <DialogTitle>{mode === "create" ? "Add Transaction" : "Edit Transaction"}</DialogTitle>
+          <DialogTitle>{mode === "create" ? t("Add Transaction") : t("Edit Transaction")}</DialogTitle>
           <DialogDescription>
             {mode === "create"
-              ? "Add a new transaction to your account"
-              : "Update the details of your transaction"}
+              ? t("Add a new transaction to your account")
+              : t("Update the details of your transaction")}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="transaction-date">Date</Label>
+              <Label htmlFor="transaction-date">{t("Date")}</Label>
               <Input
                 id="transaction-date"
                 type="date"
@@ -133,7 +135,7 @@ export function TransactionFormDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="transaction-type">Type</Label>
+              <Label htmlFor="transaction-type">{t("Type")}</Label>
               <Select
                 value={formData.type}
                 onValueChange={(value: TransactionType) => setFormData((prev) => ({ ...prev, type: value }))}
@@ -142,18 +144,18 @@ export function TransactionFormDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="expense">Expense</SelectItem>
-                  <SelectItem value="income">Income</SelectItem>
+                  <SelectItem value="expense">{t("Expense")}</SelectItem>
+                  <SelectItem value="income">{t("Income")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="transaction-description">Description</Label>
+            <Label htmlFor="transaction-description">{t("Description")}</Label>
             <Input
               id="transaction-description"
-              placeholder="Enter transaction description"
+              placeholder={t("Enter transaction description")}
               value={formData.description}
               onChange={(event) => setFormData((prev) => ({ ...prev, description: event.target.value }))}
               required
@@ -162,7 +164,7 @@ export function TransactionFormDialog({
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="transaction-category">Category</Label>
+              <Label htmlFor="transaction-category">{t("Category")}</Label>
               <Select
                 value={formData.categoryId ?? formData.categoryName ?? "uncategorized"}
                 onValueChange={(value) => {
@@ -179,10 +181,10 @@ export function TransactionFormDialog({
                 }}
               >
                 <SelectTrigger id="transaction-category">
-                  <SelectValue placeholder="Select category" />
+                  <SelectValue placeholder={t("Select category") ?? undefined} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="uncategorized">Uncategorized</SelectItem>
+                  <SelectItem value="uncategorized">{t("Uncategorized")}</SelectItem>
                   {categories.map((category) => (
                     <SelectItem key={category.id} value={category.id}>
                       {category.name}
@@ -192,7 +194,7 @@ export function TransactionFormDialog({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="transaction-amount">Amount</Label>
+              <Label htmlFor="transaction-amount">{t("Amount")}</Label>
               <Input
                 id="transaction-amount"
                 type="number"
@@ -208,25 +210,25 @@ export function TransactionFormDialog({
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="transaction-account">Account</Label>
+              <Label htmlFor="transaction-account">{t("Account")}</Label>
               <Select
                 value={formData.account}
                 onValueChange={(value) => setFormData((prev) => ({ ...prev, account: value }))}
               >
                 <SelectTrigger id="transaction-account">
-                  <SelectValue placeholder="Select account" />
+                  <SelectValue placeholder={t("Select account") ?? undefined} />
                 </SelectTrigger>
                 <SelectContent>
                   {accountOptions.map((account) => (
                     <SelectItem key={account} value={account}>
-                      {account}
+                      {t(account)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="transaction-status">Status</Label>
+              <Label htmlFor="transaction-status">{t("Status")}</Label>
               <Select
                 value={formData.status}
                 onValueChange={(value: TransactionStatus) => setFormData((prev) => ({ ...prev, status: value }))}
@@ -237,7 +239,7 @@ export function TransactionFormDialog({
                 <SelectContent>
                   {statusOptions.map((status) => (
                     <SelectItem key={status} value={status}>
-                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                      {t(status.charAt(0).toUpperCase() + status.slice(1))}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -246,10 +248,10 @@ export function TransactionFormDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="transaction-notes">Notes (optional)</Label>
+            <Label htmlFor="transaction-notes">{t("Notes (optional)")}</Label>
             <Textarea
               id="transaction-notes"
-              placeholder="Add any additional details"
+              placeholder={t("Add any additional details")}
               value={formData.notes}
               onChange={(event) => setFormData((prev) => ({ ...prev, notes: event.target.value }))}
               rows={3}
@@ -260,10 +262,10 @@ export function TransactionFormDialog({
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Saving..." : mode === "create" ? "Add Transaction" : "Save Changes"}
+              {isSubmitting ? t("Saving…") : mode === "create" ? t("Add Transaction") : t("Save Changes")}
             </Button>
           </DialogFooter>
         </form>
