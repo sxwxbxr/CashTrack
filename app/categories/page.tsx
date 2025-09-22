@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Edit, Loader2, Plus, Search, Target, Trash2, Zap } from "lucide-react"
+import { useTranslations } from "@/components/language-provider"
 
 interface Category {
   id: string
@@ -74,6 +75,7 @@ function formatReprocessedMessage(count: number) {
 }
 
 export default function CategoriesPage() {
+  const { t } = useTranslations()
   const [searchTerm, setSearchTerm] = useState("")
   const [categories, setCategories] = useState<Category[]>([])
   const [rules, setRules] = useState<Rule[]>([])
@@ -630,17 +632,17 @@ export default function CategoriesPage() {
 
   return (
     <AppLayout
-      title="Categories & Rules"
-      description="Manage spending categories and automation rules"
+      title={t("Categories & Rules")}
+      description={t("Manage spending categories and automation rules")}
       action={
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={openCreateRuleDialog}>
             <Zap className="mr-2 h-4 w-4" />
-            Add Rule
+            {t("Add Rule")}
           </Button>
           <Button size="sm" onClick={openCreateCategoryDialog}>
             <Plus className="mr-2 h-4 w-4" />
-            Add Category
+            {t("Add Category")}
           </Button>
         </div>
       }
@@ -648,8 +650,8 @@ export default function CategoriesPage() {
       <div className="space-y-6">
         <Tabs defaultValue="categories" className="space-y-4">
           <TabsList>
-            <TabsTrigger value="categories">Categories</TabsTrigger>
-            <TabsTrigger value="rules">Automation Rules</TabsTrigger>
+            <TabsTrigger value="categories">{t("Categories")}</TabsTrigger>
+            <TabsTrigger value="rules">{t("Automation Rules")}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="categories" className="space-y-4">

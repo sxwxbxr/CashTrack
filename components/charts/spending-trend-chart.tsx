@@ -2,6 +2,8 @@
 
 import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts"
 
+import { useTranslations } from "@/components/language-provider"
+
 interface SpendingTrendChartProps {
   data: Array<{ month: string; income: number; expenses: number }>
 }
@@ -11,12 +13,14 @@ function formatCurrency(value: number) {
 }
 
 export function SpendingTrendChart({ data }: SpendingTrendChartProps) {
+  const { t } = useTranslations()
   const hasData = data.some((point) => point.income !== 0 || point.expenses !== 0)
+  const axisTickStyle = { fill: "hsl(var(--muted-foreground))", fontSize: 12 }
 
   if (!hasData) {
     return (
       <div className="flex h-[350px] items-center justify-center text-sm text-muted-foreground">
-        Add transactions to see your income and expense trends.
+        {t("Add transactions to see your income and expense trends.")}
       </div>
     )
   }
@@ -34,12 +38,12 @@ export function SpendingTrendChart({ data }: SpendingTrendChartProps) {
             <stop offset="95%" stopColor="hsl(var(--chart-2))" stopOpacity={0.1} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-        <XAxis dataKey="month" axisLine={false} tickLine={false} className="text-xs fill-muted-foreground" />
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+        <XAxis dataKey="month" axisLine={false} tickLine={false} tick={axisTickStyle} />
         <YAxis
           axisLine={false}
           tickLine={false}
-          className="text-xs fill-muted-foreground"
+          tick={axisTickStyle}
           tickFormatter={(value) => formatCurrency(Number(value))}
         />
         <Tooltip
@@ -56,10 +60,10 @@ export function SpendingTrendChart({ data }: SpendingTrendChartProps) {
                 <div className="flex flex-col space-y-1">
                   <span className="text-[0.70rem] uppercase text-muted-foreground">{label}</span>
                   <span className="font-medium text-muted-foreground">
-                    Income: {formatCurrency(Number(incomePoint?.value ?? 0))}
+                    {t("Income:")} {formatCurrency(Number(incomePoint?.value ?? 0))}
                   </span>
                   <span className="font-medium text-muted-foreground">
-                    Expenses: {formatCurrency(Number(expensePoint?.value ?? 0))}
+                    {t("Expenses:")} {formatCurrency(Number(expensePoint?.value ?? 0))}
                   </span>
                 </div>
               </div>

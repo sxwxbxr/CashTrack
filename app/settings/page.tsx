@@ -17,6 +17,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import type { AppSettingsPayload, BackupFrequency } from "@/lib/settings/types"
 import type { SessionUser } from "@/lib/auth/session"
+import { useTranslations } from "@/components/language-provider"
 
 interface SettingsResponse {
   settings: AppSettingsPayload
@@ -132,6 +133,7 @@ function summarizeActivityDetails(details: Record<string, unknown> | null): stri
 }
 
 export default function SettingsPage() {
+  const { t } = useTranslations()
   const [settings, setSettings] = useState<AppSettingsPayload | null>(null)
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null)
   const [loading, setLoading] = useState(true)
@@ -405,17 +407,17 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <AppLayout title="Settings" description="Manage your CashTrack household preferences">
-        <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">Loading settings…</div>
+      <AppLayout title={t("Settings")} description={t("Manage your CashTrack household preferences")}> 
+        <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">{t("Loading settings…")}</div>
       </AppLayout>
     )
   }
 
   if (!settings) {
     return (
-      <AppLayout title="Settings" description="Manage your CashTrack household preferences">
+      <AppLayout title={t("Settings")} description={t("Manage your CashTrack household preferences")}>
         <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
-          Unable to load settings. Please refresh.
+          {t("Unable to load settings. Please refresh.")}
         </div>
       </AppLayout>
     )
@@ -426,8 +428,8 @@ export default function SettingsPage() {
 
   return (
     <AppLayout
-      title="Settings"
-      description="Manage household access, backups, and LAN sync for CashTrack"
+      title={t("Settings")}
+      description={t("Manage household access, backups, and LAN sync for CashTrack")}
     >
       <div className="space-y-6">
         <Card>

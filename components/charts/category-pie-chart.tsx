@@ -2,6 +2,8 @@
 
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts"
 
+import { useTranslations } from "@/components/language-provider"
+
 interface CategoryPieChartProps {
   data: Array<{ name: string; value: number; color: string }>
 }
@@ -11,12 +13,13 @@ function formatCurrency(value: number) {
 }
 
 export function CategoryPieChart({ data }: CategoryPieChartProps) {
+  const { t } = useTranslations()
   const hasData = data.some((entry) => entry.value > 0)
 
   if (!hasData) {
     return (
       <div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
-        Add categorized expenses to see your spending breakdown.
+        {t("Add categorized expenses to see your spending breakdown.")}
       </div>
     )
   }

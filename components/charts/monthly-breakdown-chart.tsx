@@ -2,6 +2,8 @@
 
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts"
 
+import { useTranslations } from "@/components/language-provider"
+
 const COLOR_PALETTE = [
   "hsl(var(--chart-1))",
   "hsl(var(--chart-2))",
@@ -24,7 +26,12 @@ interface MonthlyBreakdownChartProps {
   data?: { name: string; value: number; color?: string }[]
 }
 
+function formatCurrency(value: number) {
+  return Number(value).toLocaleString(undefined, { style: "currency", currency: "USD" })
+}
+
 export function MonthlyBreakdownChart({ data }: MonthlyBreakdownChartProps) {
+  const { t } = useTranslations()
   const usingFallback = !data
   const source = usingFallback ? DEFAULT_DATA : data
   const chartData = source.map((entry, index) => ({
@@ -37,7 +44,7 @@ export function MonthlyBreakdownChart({ data }: MonthlyBreakdownChartProps) {
     if (!hasData) {
       return (
         <div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
-          Add categorized expenses to see your spending breakdown.
+          {t("Add categorized expenses to see your spending breakdown.")}
         </div>
       )
     }
@@ -68,7 +75,7 @@ export function MonthlyBreakdownChart({ data }: MonthlyBreakdownChartProps) {
                   <div className="grid grid-cols-1 gap-2">
                     <div className="flex flex-col">
                       <span className="text-[0.70rem] uppercase text-muted-foreground">{payload[0].name}</span>
-                      <span className="font-bold">${payload[0].value?.toLocaleString()}</span>
+                      <span className="font-bold">{formatCurrency(Number(payload[0].value ?? 0))}</span>
                     </div>
                   </div>
                 </div>
@@ -77,7 +84,7 @@ export function MonthlyBreakdownChart({ data }: MonthlyBreakdownChartProps) {
             return null
           }}
         />
-        <Legend />
+        <Legend formatter={(value: string) => <span style={{ color: "hsl(var(--muted-foreground))" }}>{value}</span>} />
       </PieChart>
     </ResponsiveContainer>
   )
