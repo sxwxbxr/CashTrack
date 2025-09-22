@@ -235,7 +235,6 @@ export async function getDashboardAnalytics(): Promise<DashboardAnalytics> {
       }
       return b.spent - a.spent
     })
-    .slice(0, 4)
 
   const budgetWarningCandidate = budgetOverview
     .filter((entry) => entry.budget > 0)

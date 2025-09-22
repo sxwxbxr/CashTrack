@@ -25,10 +25,23 @@ interface MonthlyBreakdownChartProps {
 }
 
 export function MonthlyBreakdownChart({ data }: MonthlyBreakdownChartProps) {
-  const chartData = (data?.length ? data : DEFAULT_DATA).map((entry, index) => ({
+  const usingFallback = !data
+  const source = usingFallback ? DEFAULT_DATA : data
+  const chartData = source.map((entry, index) => ({
     ...entry,
     color: entry.color ?? COLOR_PALETTE[index % COLOR_PALETTE.length],
   }))
+
+  if (!usingFallback) {
+    const hasData = source.some((entry) => Number(entry.value) > 0)
+    if (!hasData) {
+      return (
+        <div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
+          Add categorized expenses to see your spending breakdown.
+        </div>
+      )
+    }
+  }
 
   return (
     <ResponsiveContainer width="100%" height={400}>

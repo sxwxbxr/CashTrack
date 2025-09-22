@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useTheme } from "next-themes"
 import { formatDistanceToNow } from "date-fns"
 import { toast } from "sonner"
+import { Loader2 } from "lucide-react"
 
 import { AppLayout } from "@/components/app-layout"
 import { Button } from "@/components/ui/button"
@@ -13,6 +14,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
+import { Badge } from "@/components/ui/badge"
 import type { AppSettingsPayload, BackupFrequency } from "@/lib/settings/types"
 import type { SessionUser } from "@/lib/auth/session"
 
@@ -25,6 +27,35 @@ interface SessionResponse {
   user?: SessionUser
 }
 
+interface HouseholdUser {
+  id: string
+  username: string
+  mustChangePassword: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+interface UsersApiResponse {
+  users?: HouseholdUser[]
+  error?: unknown
+}
+
+interface HouseholdActivity {
+  id: string
+  userId: string
+  username: string
+  action: string
+  entityType: string
+  entityId: string | null
+  details: Record<string, unknown> | null
+  createdAt: string
+}
+
+interface ActivityResponse {
+  activities?: HouseholdActivity[]
+  error?: unknown
+}
+
 function describeRelativeTime(iso: string | null): string {
   if (!iso) return "Never"
   const date = new Date(iso)
@@ -32,6 +63,72 @@ function describeRelativeTime(iso: string | null): string {
     return "Never"
   }
   return `${formatDistanceToNow(date, { addSuffix: true })}`
+}
+
+const activityCurrencyFormatter = new Intl.NumberFormat(undefined, {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+})
+
+function formatActionLabel(action: string): string {
+  const [entityRaw, verbRaw] = action.split(".")
+  if (!entityRaw || !verbRaw) {
+    return action.replace(/[_-]/g, " ")
+  }
+
+  const verbMap: Record<string, string> = {
+    create: "Created",
+    update: "Updated",
+    delete: "Deleted",
+    import: "Imported",
+  }
+
+  const verb = verbMap[verbRaw] ?? `${verbRaw.charAt(0).toUpperCase()}${verbRaw.slice(1)}`
+  const entity = entityRaw
+    .split(/[_-]/)
+    .map((part) => (part ? `${part.charAt(0).toUpperCase()}${part.slice(1)}` : ""))
+    .join(" ")
+  return `${verb} ${entity}`.trim()
+}
+
+function summarizeActivityDetails(details: Record<string, unknown> | null): string[] {
+  if (!details) return []
+
+  const items: string[] = []
+
+  if (typeof details.amount === "number") {
+    items.push(`Amount: ${activityCurrencyFormatter.format(details.amount)}`)
+  }
+
+  if (typeof details.account === "string" && details.account) {
+    items.push(`Account: ${details.account}`)
+  }
+
+  if (typeof details.username === "string" && details.username) {
+    items.push(`Username: ${details.username}`)
+  }
+
+  if (typeof details.mustChangePassword === "boolean") {
+    items.push(details.mustChangePassword ? "Password reset required" : "Password confirmed")
+  }
+
+  if (typeof details.imported === "number") {
+    items.push(`Imported: ${details.imported}`)
+  }
+
+  if (typeof details.skipped === "number" && details.skipped > 0) {
+    items.push(`Skipped: ${details.skipped}`)
+  }
+
+  if (details.changes && typeof details.changes === "object" && details.changes !== null) {
+    const changeKeys = Object.keys(details.changes as Record<string, unknown>)
+    if (changeKeys.length > 0) {
+      items.push(`Fields: ${changeKeys.join(", ")}`)
+    }
+  }
+
+  return items.slice(0, 3)
 }
 
 export default function SettingsPage() {
@@ -43,6 +140,18 @@ export default function SettingsPage() {
   const [newPassword, setNewPassword] = useState("")
   const [themeReady, setThemeReady] = useState(false)
   const { resolvedTheme, setTheme } = useTheme()
+  const [householdUsers, setHouseholdUsers] = useState<HouseholdUser[]>([])
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [usersError, setUsersError] = useState<string | null>(null)
+  const [newUserName, setNewUserName] = useState("")
+  const [newUserPassword, setNewUserPassword] = useState("")
+  const [newUserMustReset, setNewUserMustReset] = useState(true)
+  const [newUserError, setNewUserError] = useState<string | null>(null)
+  const [creatingUser, setCreatingUser] = useState(false)
+  const [activity, setActivity] = useState<HouseholdActivity[]>([])
+  const [activityLoading, setActivityLoading] = useState(false)
+  const [activityError, setActivityError] = useState<string | null>(null)
+  const isHouseholdAdmin = sessionUser?.username === "household"
 
   useEffect(() => {
     let cancelled = false
@@ -85,9 +194,70 @@ export default function SettingsPage() {
     }
   }, [])
 
+  const fetchHouseholdUsers = useCallback(async () => {
+    if (!isHouseholdAdmin) {
+      return
+    }
+
+    setUsersLoading(true)
+    setUsersError(null)
+    try {
+      const response = await fetch("/api/users", { cache: "no-store" })
+      const body = (await response.json().catch(() => ({}))) as UsersApiResponse
+      if (!response.ok) {
+        const message = typeof body.error === "string" ? body.error : "Unable to load accounts"
+        throw new Error(message)
+      }
+      setHouseholdUsers(Array.isArray(body.users) ? body.users : [])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load accounts"
+      setUsersError(message)
+      toast.error("Unable to load accounts", { description: message })
+    } finally {
+      setUsersLoading(false)
+    }
+  }, [isHouseholdAdmin])
+
+  const fetchHouseholdActivity = useCallback(async () => {
+    if (!isHouseholdAdmin) {
+      return
+    }
+
+    setActivityLoading(true)
+    setActivityError(null)
+    try {
+      const response = await fetch("/api/activity?limit=25", { cache: "no-store" })
+      const body = (await response.json().catch(() => ({}))) as ActivityResponse
+      if (!response.ok) {
+        const message = typeof body.error === "string" ? body.error : "Unable to load activity"
+        throw new Error(message)
+      }
+      setActivity(Array.isArray(body.activities) ? body.activities : [])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load activity"
+      setActivityError(message)
+      toast.error("Unable to load activity", { description: message })
+    } finally {
+      setActivityLoading(false)
+    }
+  }, [isHouseholdAdmin])
+
   useEffect(() => {
     setThemeReady(true)
   }, [])
+
+  useEffect(() => {
+    if (!isHouseholdAdmin) {
+      setHouseholdUsers([])
+      setActivity([])
+      setUsersError(null)
+      setActivityError(null)
+      return
+    }
+
+    fetchHouseholdUsers()
+    fetchHouseholdActivity()
+  }, [isHouseholdAdmin, fetchHouseholdUsers, fetchHouseholdActivity])
 
   const mutateSettings = async (patch: Partial<AppSettingsPayload>) => {
     setSettings((prev) => (prev ? { ...prev, ...patch } : prev))
@@ -110,6 +280,56 @@ export default function SettingsPage() {
       toast.error("Unable to save settings", {
         description: error instanceof Error ? error.message : undefined,
       })
+    }
+  }
+
+  const handleCreateHouseholdUser = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!isHouseholdAdmin || creatingUser) {
+      return
+    }
+
+    const username = newUserName.trim()
+    const password = newUserPassword.trim()
+
+    if (!username || !password) {
+      setNewUserError("Provide both a username and password")
+      return
+    }
+
+    setCreatingUser(true)
+    setNewUserError(null)
+    try {
+      const response = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username,
+          password,
+          mustChangePassword: newUserMustReset,
+        }),
+      })
+
+      const body = (await response.json().catch(() => ({}))) as { user?: HouseholdUser; error?: unknown }
+      if (!response.ok) {
+        const message = typeof body.error === "string" ? body.error : "Unable to create account"
+        throw new Error(message)
+      }
+
+      toast.success("Account created", {
+        description: body.user?.username ? `${body.user.username} can now sign in.` : undefined,
+      })
+      setNewUserName("")
+      setNewUserPassword("")
+      setNewUserMustReset(true)
+      await fetchHouseholdUsers()
+      await fetchHouseholdActivity()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to create account"
+      setNewUserError(message)
+      toast.error("Unable to create account", { description: message })
+    } finally {
+      setCreatingUser(false)
     }
   }
 
@@ -292,6 +512,179 @@ export default function SettingsPage() {
             </form>
           </CardContent>
         </Card>
+        {isHouseholdAdmin && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Additional Accounts</CardTitle>
+              <CardDescription>
+                Give household members their own credentials while sharing the same budgets and transactions.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <form className="space-y-4" onSubmit={handleCreateHouseholdUser}>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="new-account-username">Username</Label>
+                    <Input
+                      id="new-account-username"
+                      value={newUserName}
+                      autoComplete="off"
+                      onChange={(event) => setNewUserName(event.target.value)}
+                      placeholder="e.g. alex"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="new-account-password">Temporary password</Label>
+                    <Input
+                      id="new-account-password"
+                      type="password"
+                      value={newUserPassword}
+                      onChange={(event) => setNewUserPassword(event.target.value)}
+                      minLength={8}
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      id="new-account-reset"
+                      checked={newUserMustReset}
+                      onCheckedChange={(checked) => setNewUserMustReset(checked)}
+                    />
+                    <Label htmlFor="new-account-reset" className="text-sm text-muted-foreground">
+                      Require the new account to change its password on first login
+                    </Label>
+                  </div>
+                  <Button type="submit" disabled={creatingUser}>
+                    {creatingUser ? "Creating…" : "Add account"}
+                  </Button>
+                </div>
+                {newUserError && <p className="text-sm text-red-500">{newUserError}</p>}
+              </form>
+              <Separator />
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-medium">Existing accounts</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Everyone listed below can sign in to manage the shared household finances.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={fetchHouseholdUsers}
+                    disabled={usersLoading}
+                  >
+                    {usersLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Refresh
+                  </Button>
+                </div>
+                {usersError && <p className="text-sm text-red-500">{usersError}</p>}
+                <div className="space-y-2">
+                  {usersLoading && householdUsers.length === 0 ? (
+                    <div className="flex items-center justify-center rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Loading accounts…
+                    </div>
+                  ) : householdUsers.length === 0 ? (
+                    <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+                      No additional accounts yet. Create one above to get started.
+                    </div>
+                  ) : (
+                    householdUsers.map((user) => {
+                      const badgeVariant = user.mustChangePassword ? "outline" : "secondary"
+                      const badgeText = user.mustChangePassword ? "Password reset pending" : "Active"
+                      const entityLabel = user.username === "household" ? "Shared" : undefined
+                      return (
+                        <div key={user.id} className="flex flex-col gap-2 rounded-md border bg-card p-3 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <p className="font-medium">{user.username}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Updated {describeRelativeTime(user.updatedAt)}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {entityLabel ? <Badge variant="secondary">{entityLabel}</Badge> : null}
+                            <Badge variant={badgeVariant}>{badgeText}</Badge>
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        {isHouseholdAdmin && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Household Activity</CardTitle>
+              <CardDescription>Recent changes recorded for shared budgets, categories, and transactions.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">
+                  Audit who imported transactions or tweaked budgets from each account.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={fetchHouseholdActivity}
+                  disabled={activityLoading}
+                >
+                  {activityLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Refresh
+                </Button>
+              </div>
+              {activityError && <p className="text-sm text-red-500">{activityError}</p>}
+              {activityLoading && activity.length === 0 ? (
+                <div className="flex items-center justify-center rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Loading activity…
+                </div>
+              ) : activity.length === 0 ? (
+                <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+                  Actions taken by household members will appear here.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {activity.map((entry) => {
+                    const detailLines = summarizeActivityDetails(entry.details)
+                    const entityLabel = entry.entityType.replace(/[_-]/g, " ")
+                    return (
+                      <div key={entry.id} className="space-y-2 rounded-md border bg-card p-3">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <p className="text-sm font-medium">{formatActionLabel(entry.action)}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {entry.username} • {describeRelativeTime(entry.createdAt)}
+                            </p>
+                          </div>
+                          <Badge variant="outline" className="w-fit capitalize">
+                            {entityLabel}
+                          </Badge>
+                        </div>
+                        {detailLines.length > 0 && (
+                          <ul className="space-y-1 text-xs text-muted-foreground">
+                            {detailLines.map((line, index) => (
+                              <li key={index}>• {line}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>

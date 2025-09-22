@@ -2,32 +2,54 @@
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts"
 
-const data = [
-  { month: "Jan", "2023": 2400, "2024": 2200 },
-  { month: "Feb", "2023": 2100, "2024": 2400 },
-  { month: "Mar", "2023": 2800, "2024": 2300 },
-  { month: "Apr", "2023": 2600, "2024": 2500 },
-  { month: "May", "2023": 2900, "2024": 2600 },
-  { month: "Jun", "2023": 3200, "2024": 2800 },
-  { month: "Jul", "2023": 2800, "2024": 2325 },
-  { month: "Aug", "2023": 3100, "2024": 2595 },
-  { month: "Sep", "2023": 2700, "2024": 2355 },
-  { month: "Oct", "2023": 2900, "2024": 2540 },
-  { month: "Nov", "2023": 3300, "2024": 2625 },
-  { month: "Dec", "2023": 3500, "2024": 2920 },
+const DEFAULT_DATA = [
+  { month: "Jan", previous: 2400, current: 2200 },
+  { month: "Feb", previous: 2100, current: 2400 },
+  { month: "Mar", previous: 2800, current: 2300 },
+  { month: "Apr", previous: 2600, current: 2500 },
+  { month: "May", previous: 2900, current: 2600 },
+  { month: "Jun", previous: 3200, current: 2800 },
+  { month: "Jul", previous: 2800, current: 2325 },
+  { month: "Aug", previous: 3100, current: 2595 },
+  { month: "Sep", previous: 2700, current: 2355 },
+  { month: "Oct", previous: 2900, current: 2540 },
+  { month: "Nov", previous: 3300, current: 2625 },
+  { month: "Dec", previous: 3500, current: 2920 },
 ]
 
-export function YearlyComparisonChart() {
+interface YearlyComparisonChartProps {
+  data?: Array<{ month: string; current: number; previous: number }>
+  currentLabel?: string
+  previousLabel?: string
+}
+
+function formatCurrency(value: number) {
+  return Number(value).toLocaleString(undefined, { style: "currency", currency: "USD" })
+}
+
+export function YearlyComparisonChart({ data, currentLabel = "Current", previousLabel = "Previous" }: YearlyComparisonChartProps) {
+  const usingFallback = !data
+  const chartData = usingFallback ? DEFAULT_DATA : data
+  const hasData = chartData.some((point) => point.current !== 0 || point.previous !== 0)
+
+  if (!usingFallback && !hasData) {
+    return (
+      <div className="flex h-[350px] items-center justify-center text-sm text-muted-foreground">
+        Year-over-year comparison becomes available once you have at least two years of spending data.
+      </div>
+    )
+  }
+
   return (
     <ResponsiveContainer width="100%" height={400}>
-      <BarChart data={data}>
+      <BarChart data={chartData}>
         <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
         <XAxis dataKey="month" axisLine={false} tickLine={false} className="text-xs fill-muted-foreground" />
         <YAxis
           axisLine={false}
           tickLine={false}
           className="text-xs fill-muted-foreground"
-          tickFormatter={(value) => `$${value}`}
+          tickFormatter={(value) => formatCurrency(Number(value))}
         />
         <Tooltip
           content={({ active, payload, label }) => {
@@ -39,9 +61,9 @@ export function YearlyComparisonChart() {
                     {payload.map((entry, index) => (
                       <div key={index} className="flex items-center justify-between gap-2">
                         <span className="text-sm" style={{ color: entry.color }}>
-                          {entry.dataKey}:
+                          {entry.name}:
                         </span>
-                        <span className="font-bold">${entry.value}</span>
+                        <span className="font-bold">{formatCurrency(Number(entry.value ?? 0))}</span>
                       </div>
                     ))}
                   </div>
@@ -52,8 +74,8 @@ export function YearlyComparisonChart() {
           }}
         />
         <Legend />
-        <Bar dataKey="2023" fill="hsl(var(--chart-1))" name="2023" radius={[4, 4, 0, 0]} />
-        <Bar dataKey="2024" fill="hsl(var(--chart-2))" name="2024" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="previous" fill="hsl(var(--chart-2))" name={previousLabel} radius={[4, 4, 0, 0]} />
+        <Bar dataKey="current" fill="hsl(var(--chart-1))" name={currentLabel} radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   )
