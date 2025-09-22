@@ -2,6 +2,8 @@
 
 CashTrack is an offline-first household finance dashboard built with Next.js 14. Transactions, categories, automation rules, and settings live in a local SQLite database so the app stays fast and private even without an internet connection. A service worker keeps the UI responsive when you are offline, while LAN sync endpoints and Windows packaging scripts make it easy to share a single ledger across the devices in your home.
 
+Remember!! CashTrack will never be able to automatically sync with your daily transactions due to its offline-firt architecture. You still need to either manually enter the Transactions or bulk-load them via bank statements (CSV or PDF-Format).
+
 ## Features
 
 - **SQLite persistence** – data is stored in `cashtrack.db` under your configured `CASHTRACK_DATA_DIR`. Existing JSON seed files are imported automatically on the first run.
