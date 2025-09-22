@@ -8,6 +8,7 @@ import {
   ArrowUpRight,
   Calendar,
   DollarSign,
+  FileDown,
   Info,
   Loader2,
   Minus,
@@ -127,6 +128,7 @@ export default function ReportsPage() {
   const [period, setPeriod] = useState<ReportPeriodKey>("last-3-months")
   const [report, setReport] = useState<ReportAnalytics | null>(null)
   const [loading, setLoading] = useState(false)
+  const [pdfLoading, setPdfLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
 
@@ -187,6 +189,42 @@ export default function ReportsPage() {
 
   const handlePeriodChange = (value: string) => {
     setPeriod(value as ReportPeriodKey)
+  }
+
+  const handleExportPdf = async () => {
+    if (!report) {
+      toast.error("Unable to export report", { description: "Analytics are still loading." })
+      return
+    }
+
+    setPdfLoading(true)
+    try {
+      const response = await fetch(`/api/reports/pdf?period=${period}`, { cache: "no-store" })
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: unknown }
+        const message = typeof body.error === "string" ? body.error : "Unable to export report"
+        throw new Error(message)
+      }
+
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const slug = report.label
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+      const filename = `cashtrack-report-${slug || period}.pdf`
+      const anchor = document.createElement("a")
+      anchor.href = url
+      anchor.download = filename
+      anchor.click()
+      URL.revokeObjectURL(url)
+      toast.success("Report downloaded", { description: filename })
+    } catch (exportError) {
+      const message = exportError instanceof Error ? exportError.message : "Unable to export report"
+      toast.error("Unable to export report", { description: message })
+    } finally {
+      setPdfLoading(false)
+    }
   }
 
   const categoryRows = useMemo(() => {
@@ -253,6 +291,19 @@ export default function ReportsPage() {
             <Button variant="outline" size="sm" onClick={handleRefresh} disabled={loading}>
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
               Refresh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportPdf}
+              disabled={pdfLoading || loading || !report}
+            >
+              {pdfLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FileDown className="mr-2 h-4 w-4" />
+              )}
+              Export PDF
             </Button>
           </div>
         </div>
@@ -445,6 +496,64 @@ export default function ReportsPage() {
                           </TableCell>
                         </TableRow>
                       ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Account activity</CardTitle>
+                <CardDescription>Understand inflows, outflows, and net change for each account.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Account</TableHead>
+                        <TableHead className="text-right">Inflows</TableHead>
+                        <TableHead className="text-right">Outflows</TableHead>
+                        <TableHead className="text-right">Net</TableHead>
+                        <TableHead className="text-right">Transactions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {report.accounts.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
+                            Link transactions to accounts to see how cash moves between them.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        report.accounts.map((account) => (
+                          <TableRow key={account.id}>
+                            <TableCell className="font-medium">{account.name}</TableCell>
+                            <TableCell className="text-right font-medium text-emerald-600">
+                              {formatCurrency(account.inflow)}
+                            </TableCell>
+                            <TableCell className="text-right font-medium text-red-600">
+                              {formatCurrency(-account.outflow)}
+                            </TableCell>
+                            <TableCell
+                              className={cn(
+                                "text-right font-medium",
+                                account.net > 0
+                                  ? "text-emerald-600"
+                                  : account.net < 0
+                                    ? "text-red-600"
+                                    : "text-muted-foreground",
+                              )}
+                            >
+                              {formatCurrency(account.net)}
+                            </TableCell>
+                            <TableCell className="text-right text-sm text-muted-foreground">
+                              {integerFormatter.format(account.transactions)}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
                     </TableBody>
                   </Table>
                 </div>

@@ -2,6 +2,7 @@ import { randomUUID } from "crypto"
 import type Database from "better-sqlite3"
 
 import { initDatabase, withTransaction } from "@/lib/db"
+import { ensureAccountExists } from "@/lib/accounts/service"
 import { createAutomationRuleEvaluator } from "@/lib/categories/rule-matcher"
 import { listAutomationRules } from "@/lib/categories/rule-repository"
 import { getCategoryById, getCategoryByName, listCategories } from "@/lib/categories/repository"
@@ -20,6 +21,7 @@ import {
 } from "@/lib/transactions/repository"
 import type {
   CreateTransactionInput,
+  CreateTransferInput,
   ParsedCsvTransaction,
   Transaction,
   TransactionListParams,
@@ -33,7 +35,8 @@ void initDatabase()
 
 const DEFAULT_PAGE_SIZE = 50
 const VALID_STATUSES: TransactionStatus[] = ["pending", "completed", "cleared"]
-const VALID_TYPES: TransactionType[] = ["income", "expense"]
+const VALID_TYPES: TransactionType[] = ["income", "expense", "transfer"]
+const MUTABLE_TRANSACTION_TYPES: TransactionType[] = ["income", "expense"]
 
 const ORDERABLE_FIELDS: Record<string, TransactionQueryOptions["orderBy"]> = {
   date: "date",
@@ -61,7 +64,13 @@ function normalizeDate(input: string): string {
 }
 
 function applyAmount(amount: number, type: TransactionType): number {
-  return type === "expense" ? -Math.abs(amount) : Math.abs(amount)
+  if (type === "expense") {
+    return -Math.abs(amount)
+  }
+  if (type === "income") {
+    return Math.abs(amount)
+  }
+  return amount
 }
 
 function resolveStatus(status?: string): TransactionStatus {
@@ -237,6 +246,7 @@ async function prepareTransactionRecord(
   const baseCategory = await resolveCategoryReference(input.categoryId ?? null, input.categoryName, db)
   const matched = evaluator(input.description)
   const finalCategory = matched ?? baseCategory
+  const account = await ensureAccountExists(input.account, db)
 
   return {
     id: `txn_${randomUUID()}`,
@@ -245,14 +255,20 @@ async function prepareTransactionRecord(
     categoryId: finalCategory.categoryId,
     categoryName: finalCategory.categoryName,
     amount,
-    account: input.account,
+    account: account.name,
     status,
     type,
     notes,
+    transferGroupId: null,
+    transferDirection: null,
   }
 }
 
 export async function createTransaction(input: CreateTransactionInput): Promise<Transaction> {
+  if (input.type === "transfer") {
+    throw new Error("Transfers must be created using the transfer workflow")
+  }
+
   return withTransaction(async (db) => {
     const record = await prepareTransactionRecord(input, db)
     return insertTransactionRecord(record, db)
@@ -266,7 +282,18 @@ export async function updateTransaction(id: string, updates: UpdateTransactionIn
       throw new Error("Transaction not found")
     }
 
+    if (existing.type === "transfer") {
+      throw new Error("Transfers cannot be edited. Delete the transfer and recreate it instead.")
+    }
+
+    if (updates.type === "transfer") {
+      throw new Error("Transfers cannot be set via the standard transaction editor")
+    }
+
     const type = updates.type ? resolveType(updates.type) : existing.type
+    if (!MUTABLE_TRANSACTION_TYPES.includes(type)) {
+      throw new Error("Unsupported transaction type")
+    }
     let amount = existing.amount
     if (typeof updates.amount === "number") {
       amount = applyAmount(updates.amount, type)
@@ -286,6 +313,11 @@ export async function updateTransaction(id: string, updates: UpdateTransactionIn
     )
     const matched = evaluator(updates.description ?? existing.description)
     const finalCategory = matched ?? baseCategory
+    let resolvedAccount = existing.account
+    if (typeof updates.account === "string") {
+      const ensuredAccount = await ensureAccountExists(updates.account, db)
+      resolvedAccount = ensuredAccount.name
+    }
 
     const updated = await updateTransactionRecord(
       id,
@@ -295,10 +327,12 @@ export async function updateTransaction(id: string, updates: UpdateTransactionIn
         categoryId: finalCategory.categoryId,
         categoryName: finalCategory.categoryName,
         amount,
-        account: updates.account ?? existing.account,
+        account: resolvedAccount,
         status,
         type,
         notes,
+        transferGroupId: existing.transferGroupId,
+        transferDirection: existing.transferDirection,
       },
       db,
     )
@@ -311,11 +345,113 @@ export async function updateTransaction(id: string, updates: UpdateTransactionIn
   })
 }
 
+async function deleteTransferGroup(groupId: string): Promise<number> {
+  return withTransaction(async (db) => {
+    const related = await listTransactionRecords({ transferGroupIds: [groupId] }, {}, db)
+    if (related.length === 0) {
+      return 0
+    }
+
+    let deletedCount = 0
+    for (const transaction of related) {
+      const deleted = await deleteTransactionRecord(transaction.id, db)
+      if (deleted) {
+        deletedCount += 1
+      }
+    }
+    return deletedCount
+  })
+}
+
 export async function deleteTransaction(id: string): Promise<void> {
+  const existing = await getTransactionRecordById(id)
+  if (!existing) {
+    throw new Error("Transaction not found")
+  }
+
+  if (existing.type === "transfer" && existing.transferGroupId) {
+    const deletedCount = await deleteTransferGroup(existing.transferGroupId)
+    if (deletedCount === 0) {
+      throw new Error("Transfer not found")
+    }
+    return
+  }
+
   const deleted = await withTransaction(async (db) => deleteTransactionRecord(id, db))
   if (!deleted) {
     throw new Error("Transaction not found")
   }
+}
+
+function formatTransferDescription(base: string, direction: "in" | "out", counterparty: string) {
+  const normalized = base.trim()
+  if (!normalized) {
+    return direction === "out" ? `Transfer to ${counterparty}` : `Transfer from ${counterparty}`
+  }
+  return direction === "out" ? `${normalized} → ${counterparty}` : `${normalized} ← ${counterparty}`
+}
+
+export async function createTransfer(
+  input: CreateTransferInput,
+): Promise<{ transferId: string; transactions: [Transaction, Transaction] }> {
+  const amount = Number(input.amount)
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Transfer amount must be greater than zero")
+  }
+
+  if (input.fromAccount.trim().toLowerCase() === input.toAccount.trim().toLowerCase()) {
+    throw new Error("Choose two different accounts for a transfer")
+  }
+
+  const normalizedDate = normalizeDate(input.date)
+  const status = resolveStatus(input.status)
+  const notes = input.notes?.trim() ? input.notes.trim() : null
+
+  return withTransaction(async (db) => {
+    const [fromAccount, toAccount] = await Promise.all([
+      ensureAccountExists(input.fromAccount, db),
+      ensureAccountExists(input.toAccount, db),
+    ])
+
+    const transferId = `trf_${randomUUID()}`
+
+    const outgoingRecord: CreateTransactionRecord = {
+      id: `txn_${randomUUID()}`,
+      date: normalizedDate,
+      description: formatTransferDescription(input.description, "out", toAccount.name),
+      categoryId: null,
+      categoryName: "Transfer",
+      amount: -Math.abs(amount),
+      account: fromAccount.name,
+      status,
+      type: "transfer",
+      notes,
+      transferGroupId: transferId,
+      transferDirection: "out",
+    }
+
+    const incomingRecord: CreateTransactionRecord = {
+      id: `txn_${randomUUID()}`,
+      date: normalizedDate,
+      description: formatTransferDescription(input.description, "in", fromAccount.name),
+      categoryId: null,
+      categoryName: "Transfer",
+      amount: Math.abs(amount),
+      account: toAccount.name,
+      status,
+      type: "transfer",
+      notes,
+      transferGroupId: transferId,
+      transferDirection: "in",
+    }
+
+    const [outgoing, incoming] = await Promise.all([
+      insertTransactionRecord(outgoingRecord, db),
+      insertTransactionRecord(incomingRecord, db),
+    ])
+
+    return { transferId, transactions: [outgoing, incoming] }
+  })
 }
 
 export function parseCsv(content: string): string[][] {
@@ -499,13 +635,24 @@ export async function importTransactions(transactionsToImport: ParsedCsvTransact
   )
 
   const evaluator = await getAutomationEvaluator()
+  const accountCache = new Map<string, string>()
 
   const newRecords: CreateTransactionRecord[] = []
 
   for (const entry of transactionsToImport) {
     const type = resolveType(entry.type)
     const amount = applyAmount(entry.amount, type)
-    const account = entry.account || "Checking"
+    const rawAccount = (entry.account ?? "Checking").trim()
+    const candidateAccount = rawAccount || "Checking"
+    const candidateKey = candidateAccount.toLowerCase()
+    let ensuredAccount = accountCache.get(candidateKey)
+    if (!ensuredAccount) {
+      const ensured = await ensureAccountExists(candidateAccount)
+      ensuredAccount = ensured.name
+      accountCache.set(candidateKey, ensuredAccount)
+      accountCache.set(ensuredAccount.toLowerCase(), ensuredAccount)
+    }
+    const account = ensuredAccount
     const status = resolveStatus(entry.status)
     const key = [entry.date, entry.description.toLowerCase(), amount, account.toLowerCase()].join("|")
     if (existingKeys.has(key)) {

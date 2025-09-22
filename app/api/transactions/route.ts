@@ -12,7 +12,7 @@ const querySchema = z.object({
   categoryName: z.string().optional(),
   status: z.enum(["pending", "completed", "cleared"]).optional(),
   account: z.string().optional(),
-  type: z.enum(["income", "expense"]).optional(),
+  type: z.enum(["income", "expense", "transfer"]).optional(),
   startDate: z
     .string()
     .optional()

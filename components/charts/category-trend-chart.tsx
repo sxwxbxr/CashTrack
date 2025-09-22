@@ -3,15 +3,9 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts"
 
 import { useTranslations } from "@/components/language-provider"
+import { DEFAULT_CHART_COLORS } from "@/lib/colors"
 
-const COLOR_PALETTE = [
-  "hsl(var(--chart-1))",
-  "hsl(var(--chart-2))",
-  "hsl(var(--chart-3))",
-  "hsl(var(--chart-4))",
-  "hsl(var(--chart-5))",
-  "hsl(var(--destructive))",
-]
+const COLOR_PALETTE = DEFAULT_CHART_COLORS
 
 interface CategoryTrendChartProps {
   data: Array<{ month: string; [key: string]: number }>
@@ -84,10 +78,15 @@ export function CategoryTrendChart({ data, series }: CategoryTrendChartProps) {
             key={item.key}
             type="monotone"
             dataKey={item.key}
-            stroke={COLOR_PALETTE[index % COLOR_PALETTE.length]}
+            stroke={item.color ?? COLOR_PALETTE[index % COLOR_PALETTE.length]}
             strokeWidth={2}
             name={item.label}
-            dot={{ r: 3 }}
+            dot={{
+              r: 3,
+              stroke: item.color ?? COLOR_PALETTE[index % COLOR_PALETTE.length],
+              strokeWidth: 2,
+              fill: item.color ?? COLOR_PALETTE[index % COLOR_PALETTE.length],
+            }}
             isAnimationActive={false}
           />
         ))}

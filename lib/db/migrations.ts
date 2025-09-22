@@ -1,5 +1,6 @@
 import { getDatabase } from "./client"
 import {
+  CREATE_ACCOUNTS_TABLE,
   CREATE_AUTOMATION_RULES_TABLE,
   CREATE_CATEGORIES_TABLE,
   CREATE_SETTINGS_TABLE,
@@ -21,10 +22,25 @@ function ensureIndexes() {
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_log_entity ON sync_log(entityType, entityId)",
     "CREATE INDEX IF NOT EXISTS idx_user_activity_createdAt ON user_activity(createdAt DESC)",
     "CREATE INDEX IF NOT EXISTS idx_user_activity_userId ON user_activity(userId)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_name ON accounts(name)",
   ]
 
   for (const statement of statements) {
     db.exec(statement)
+  }
+}
+
+function ensureTransactionTransferColumns() {
+  const db = getDatabase()
+  const columns = db.prepare("PRAGMA table_info(transactions)").all() as Array<{ name: string }>
+  const columnNames = new Set(columns.map((column) => column.name))
+
+  if (!columnNames.has("transferGroupId")) {
+    db.exec("ALTER TABLE transactions ADD COLUMN transferGroupId TEXT")
+  }
+
+  if (!columnNames.has("transferDirection")) {
+    db.exec("ALTER TABLE transactions ADD COLUMN transferDirection TEXT")
   }
 }
 
@@ -37,6 +53,7 @@ export function runMigrations(): void {
   const createStatements = [
     CREATE_USERS_TABLE,
     CREATE_CATEGORIES_TABLE,
+    CREATE_ACCOUNTS_TABLE,
     CREATE_TRANSACTIONS_TABLE,
     CREATE_AUTOMATION_RULES_TABLE,
     CREATE_SYNC_LOG_TABLE,
@@ -48,6 +65,7 @@ export function runMigrations(): void {
     db.exec(statement)
   }
 
+  ensureTransactionTransferColumns()
   ensureIndexes()
   hasRunMigrations = true
 }
