@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server"
 import { NextResponse } from "next/server"
-import { getIronSession } from "iron-session/edge"
+import { getIronSession } from "iron-session"
 
 import { sessionOptions, type SessionData } from "@/lib/auth/session"
 
