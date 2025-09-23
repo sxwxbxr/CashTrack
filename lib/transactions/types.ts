@@ -9,6 +9,10 @@ export interface Transaction {
   categoryId: string | null
   categoryName: string
   amount: number
+  accountAmount: number
+  originalAmount: number
+  currency: string
+  exchangeRate: number
   account: string
   status: TransactionStatus
   type: TransactionType
@@ -52,10 +56,15 @@ export interface CreateTransactionInput {
   categoryId?: string | null
   categoryName: string
   amount: number
+  accountAmount?: number
+  originalAmount?: number
+  currency?: string
+  exchangeRate?: number
   account: string
   status: TransactionStatus
   type: TransactionType
   notes?: string | null
+  recurrence?: RecurrenceInput | null
 }
 
 export interface UpdateTransactionInput {
@@ -64,10 +73,15 @@ export interface UpdateTransactionInput {
   categoryId?: string | null
   categoryName?: string
   amount?: number
+  accountAmount?: number
+  originalAmount?: number
+  currency?: string
+  exchangeRate?: number
   account?: string
   status?: TransactionStatus
   type?: TransactionType
   notes?: string | null
+  recurrence?: RecurrenceInput | null
 }
 
 export interface ParsedCsvTransaction {
@@ -90,6 +104,37 @@ export interface CreateTransferInput {
   toAccount: string
   status: TransactionStatus
   notes?: string | null
+}
+
+export type RecurrenceUnit = "day" | "week" | "month" | "year"
+
+export interface RecurrenceInput {
+  interval: number
+  unit: RecurrenceUnit
+  startDate?: string
+}
+
+export interface RecurringTransaction {
+  id: string
+  description: string
+  categoryId: string | null
+  categoryName: string
+  amount: number
+  accountAmount: number
+  originalAmount: number
+  currency: string
+  exchangeRate: number
+  account: string
+  status: TransactionStatus
+  type: TransactionType
+  notes: string | null
+  interval: number
+  unit: RecurrenceUnit
+  nextRunDate: string
+  lastRunDate: string | null
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
 }
 
 export interface CsvParseResult {
