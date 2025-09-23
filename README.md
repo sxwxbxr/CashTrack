@@ -1,107 +1,164 @@
-# CashTrack
+<div align="center">
+  <h1>CashTrack</h1>
+  <p><strong>Offline-first household finance dashboard built with Next.js 14</strong></p>
+  <p>
+    <a href="https://nodejs.org/en/download">
+      <img alt="Node.js 18.18+" src="https://img.shields.io/badge/node-18.18%2B-5B8DEF?style=for-the-badge&logo=node.js&logoColor=white" />
+    </a>
+    <a href="https://nextjs.org/">
+      <img alt="Next.js 14" src="https://img.shields.io/badge/next.js-14-black?style=for-the-badge&logo=next.js&logoColor=white" />
+    </a>
+    <a href="./docs/LOCAL_INSTALLATION.md">
+      <img alt="Local installation" src="https://img.shields.io/badge/docs-local_installation-1F2545?style=for-the-badge&logo=readme&logoColor=white" />
+    </a>
+  </p>
+  <p>
+    Track spending, automate categorisation rules, and sync a shared SQLite ledger across your household &mdash; even without an internet connection.
+  </p>
+</div>
 
-CashTrack is an offline-first household finance dashboard built with Next.js 14. Transactions, categories, automation rules, and settings live in a local SQLite database so the app stays fast and private even without an internet connection. A service worker keeps the UI responsive when you are offline, while LAN sync endpoints and Windows packaging scripts make it easy to share a single ledger across the devices in your home.
+![Dashboard preview placeholder showing the CashTrack layout](./docs/media/dashboard-preview-placeholder.svg)
 
-Remember!! CashTrack will never be able to automatically sync with your daily transactions due to its offline-firt architecture. You still need to either manually enter the Transactions or bulk-load them via bank statements (CSV or PDF-Format).
+> 🖼️ **Screenshot placeholder** &mdash; swap `docs/media/dashboard-preview-placeholder.svg` with a real dashboard capture when you are ready.
 
-## Features
+---
 
-- **SQLite persistence** – data is stored in `cashtrack.db` under your configured `CASHTRACK_DATA_DIR`. Existing JSON seed files are imported automatically on the first run.
-- **Household authentication** – iron-session backed login with default `household / cashtrack` credentials. Require a password change before accessing the full app.
-- **Rich dashboard** – live income/expense trends, category spending charts, and budget utilisation calculated directly from SQL queries.
-- **Automation rules & bulk import** – reapply category automation after CSV imports without touching JSON files.
-- **LAN sync & backups** – authenticated `/api/sync/{pull,push,export,import}` endpoints plus settings to toggle LAN access and track the last successful sync.
-- **Offline-ready** – `public/sw.js` caches static assets and recent API responses; `app/manifest.ts` exposes installable PWA metadata with icons.
-- **Desktop distribution** – scripts to build a Windows-ready bundle, install a background service, and generate an Inno Setup installer.
+## Table of contents
+
+- [Feature highlights](#feature-highlights)
+- [Quick start](#quick-start)
+- [Screenshots & walkthrough](#screenshots--walkthrough)
+- [Architecture at a glance](#architecture-at-a-glance)
+- [Syncing and backups](#syncing-and-backups)
+- [Desktop distribution](#desktop-distribution)
+- [Available scripts](#available-scripts)
+- [Further reading](#further-reading)
+
+## Feature highlights
+
+| ✨ | What you get | Why it matters |
+| --- | --- | --- |
+| 🛡️ **Offline-first core** | SQLite + iron-session keep every transaction on disk and encrypted cookies stay local. | Works in airplane mode, on a NAS, or behind firewalls with no cloud dependency. |
+| 📈 **Insightful dashboards** | Category drilldowns, rolling cash-flow charts, and balance summaries driven by SQL views. | Understand where money moves over time instead of staring at static CSV exports. |
+| 🤖 **Automation rules** | Reapply saved mappings to new statements, match on merchant names, and fine-tune categories. | Skip repetitive bookkeeping and keep your ledger consistent across imports. |
+| 🌐 **LAN sync APIs** | Authenticated `/api/sync/{pull,push,export,import}` endpoints plus UI toggles for discovery. | Share updates between laptops or a home server without exposing data to the internet. |
+| 🪟 **Windows tooling** | Build portable bundles, install a Windows Service, and generate an Inno Setup installer. | Ship CashTrack as a desktop app for family members who just want a shortcut. |
+| 🔐 **Privacy by default** | No analytics, PWA install prompts, and configurable data directories. | Maintain full control over where your household data lives. |
 
 ## Quick start
 
-1. **Install dependencies**
+> Looking for the full walkthrough? Jump to the [Local Installation Guide](./docs/LOCAL_INSTALLATION.md).
 
-   ```bash
-   npm install
-   ```
+### 1. Install dependencies
 
-2. **Configure environment**
+```bash
+npm install
+```
 
-   Copy `.env.example` to `.env.local` (or `.env`) and set a secure session secret. By default the SQLite database and backups live in `./data`, but you can point `CASHTRACK_DATA_DIR` at another folder such as a shared network drive.
+### 2. Configure your environment
 
-   ```env
-   CASHTRACK_SESSION_SECRET=replace-me-with-a-strong-random-value
-   CASHTRACK_DATA_DIR=./data
-   SYNC_HOST=http://192.168.1.10:3000   # optional override used for LAN discovery text
-   ```
+Copy `.env.example` to `.env.local` (or `.env`) and set a strong session secret. All data lives inside `CASHTRACK_DATA_DIR` (defaults to `./data`).
 
-3. **Initialise the database**
+```bash
+cp .env.example .env.local
+# Generate a 32-byte secret on macOS/Linux and append it to the file:
+echo "CASHTRACK_SESSION_SECRET=$(openssl rand -base64 32)" >> .env.local
+```
 
-   ```bash
-   npm run db:migrate
-   ```
+Add or edit the following keys:
 
-   The migration script creates the SQLite schema, imports any JSON seed files that already exist in `data/`, and provisions the default `household` user with the password `cashtrack` (flagged to change on first login).
+```env
+CASHTRACK_SESSION_SECRET=replace-me-with-a-strong-random-value
+CASHTRACK_DATA_DIR=./data
+SYNC_HOST=http://192.168.1.10:3000  # optional: customise the discovery banner shown to the household
+```
 
-4. **Launch the dev server**
+### 3. Prepare the database
 
-   ```bash
-   npm run dev
-   ```
+```bash
+npm run db:migrate
+```
 
-   Visit `http://localhost:3000`, sign in with `household / cashtrack`, and head to **Settings → Household Account** to change the password for everyone.
+The migration script creates the SQLite schema, imports any `data/*.json` seed files, and provisions the default household account.
 
-### Default credentials
+### 4. Run CashTrack locally
 
-- Username: `household`
-- Password: `cashtrack`
+```bash
+npm run dev
+```
 
-Sessions are backed by iron-session cookies; set `CASHTRACK_SESSION_SECRET` to a high-entropy value before deploying.
+Visit `http://localhost:3000`, sign in with the default credentials (`household` / `cashtrack`), and update the password from **Settings → Household account**. The middleware blocks access to the rest of the UI until every member has changed it.
 
-## Syncing & backups
+## Screenshots & walkthrough
 
-- Toggle **Allow LAN sync** in Settings to permit authenticated requests against the sync endpoints.
-- Pull incremental changes: `GET /api/sync/pull?since=<ISO timestamp>`
-- Push merges from another device: `POST /api/sync/push`
-- Export a JSON snapshot: `GET /api/sync/export`
-- Restore a snapshot: upload the JSON file to `POST /api/sync/import` or use the Settings UI.
+<div align="center">
+  <img src="./docs/media/rules-automation-placeholder.svg" alt="Placeholder graphic highlighting automation rules" width="85%" />
+  <p><em>Replace with automation, import, and budgeting screenshots as you collect them.</em></p>
+</div>
 
-The `settings` table tracks the discovery host, last backup time, and last successful sync so you can monitor sharing across the household.
+Use this section to collect real screenshots of the dashboard, automation designer, import flows, and mobile layouts. Include short captions so new users understand what they are seeing at a glance.
 
-## Windows packaging & service control
+## Architecture at a glance
 
-1. **Create a production desktop bundle**
+```mermaid
+graph TD
+  A[Next.js UI<br/>Server Actions] --> B[(SQLite + WAL)]
+  B --> C{Sync API}
+  C --> D[LAN peer]
+  C --> E[Manual export/import]
+  A --> F[Service Worker Cache]
+  F --> A
+  G[Windows Service / Systemd] --> A
+  G --> B
+```
 
+- **Data directory:** `CASHTRACK_DATA_DIR` defaults to `./data` relative to the app root.
+- **Sessions:** iron-session encrypts cookies using `CASHTRACK_SESSION_SECRET`.
+- **Offline support:** `public/sw.js` caches assets and recent API responses to keep reports responsive without Wi-Fi.
+
+## Syncing and backups
+
+- Toggle **Allow LAN sync** inside Settings to expose the `/api/sync/*` endpoints to authenticated household members.
+- Pull incremental changes from another device: `GET /api/sync/pull?since=<ISO timestamp>`.
+- Push merges back: `POST /api/sync/push` with an authenticated session cookie.
+- Export a JSON snapshot: `GET /api/sync/export`.
+- Restore a snapshot: upload it through Settings or send it to `POST /api/sync/import`.
+- Automated backup schedules are stored inside the `settings` table; trigger exports using your platform's scheduler.
+
+## Desktop distribution
+
+1. **Build a production bundle**
    ```bash
    npm run build:desktop
    ```
-
-   The script outputs `release/windows/app` (Next.js build, production dependencies, scripts) and `release/windows/runtime`. Copy a portable Node.js runtime into `release/windows/runtime` or set `CASHTRACK_NODE_RUNTIME` before running the script.
-
-2. **Install the Windows service**
-
+   - Outputs the optimised Next.js build under `release/windows/app`.
+   - Copy a portable Node.js runtime into `release/windows/runtime` or set `CASHTRACK_NODE_RUNTIME` before running the script.
+2. **Install as a Windows service**
    ```bash
    npm run service:install
    ```
+   - Registers the **CashTrack Local Server** service and stores data under `%PROGRAMDATA%\CashTrack\data`.
+   - Use `npm run service:uninstall` to remove it.
+3. **Create an installer (optional)**
+   - Open `installer/windows/CashTrackInstaller.iss` in Inno Setup to package the bundle.
+   - The installer copies files to `%ProgramFiles%/CashTrack`, registers the service, and creates shortcuts that open `http://localhost:3000`.
 
-   This registers a "CashTrack Local Server" service that launches `next start` on boot, storing the SQLite database under `%PROGRAMDATA%\CashTrack\data` and logs under `%PROGRAMDATA%\CashTrack\logs`. Use `npm run service:uninstall` to remove it.
-
-3. **Build an installer**
-
-   Open `installer/windows/CashTrackInstaller.iss` in Inno Setup to package the contents of `release/windows` into a distributable installer. The installer copies files into `%ProgramFiles%/CashTrack`, registers the Windows service, and creates shortcuts that open `http://localhost:3000` in the default browser.
-
-## Additional documentation
-
-Detailed platform-specific setup, backup/restore tips, and LAN sync usage notes live in [`docs/LOCAL_INSTALLATION.md`](./docs/LOCAL_INSTALLATION.md).
-
-## Development commands
+## Available scripts
 
 ```bash
-npm run dev          # start the Next.js dev server
-npm run db:migrate   # run migrations and seed the SQLite database
-npm run lint         # TypeScript + ESLint checks
-npm run build        # production build (used by build:desktop)
+npm run dev            # Start the Next.js dev server with hot reloading
+npm run db:migrate     # Initialise the SQLite database and import seed data
+npm run lint           # Run ESLint + TypeScript checks
+npm run build          # Production build used by build:desktop
+npm run build:desktop  # Prepare the Windows-ready bundle
+npm run service:install   # Install the Windows background service
+npm run service:uninstall # Remove the Windows background service
 ```
 
-## Staying private & offline
+## Further reading
 
-- CashTrack never ships analytics or telemetry. Remove `@vercel/analytics` entirely and keep the app self-hosted.
-- PWA metadata (`app/manifest.ts`) and the service worker (`public/sw.js`) let you install CashTrack and keep working offline; budget summaries and charts render from cached SQLite data even when disconnected.
-- Point `CASHTRACK_DATA_DIR` at a synced folder (Syncthing, NAS share, etc.) to replicate the SQLite database, or rely on the built-in LAN sync endpoints for incremental replication between trusted devices.
+- [Local installation guide](./docs/LOCAL_INSTALLATION.md)
+- [Features overview](./Features.md)
+- [Component catalogue](./components/README.md) *(if available)*
+
+Ready to contribute? Open an issue or start a discussion describing how you use CashTrack in your household setup.

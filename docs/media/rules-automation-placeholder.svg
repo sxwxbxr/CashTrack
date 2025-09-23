@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="760" viewBox="0 0 1440 760">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#181C2F" />
+      <stop offset="100%" stop-color="#2F3A5D" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="140%" height="140%">
+      <feOffset dx="0" dy="12" result="off" />
+      <feGaussianBlur in="off" stdDeviation="20" result="blur" />
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.07 0 0 0 0 0.1 0 0 0 0 0.2 0 0 0 0.3 0" />
+    </filter>
+  </defs>
+  <rect width="1440" height="760" fill="url(#bg)" rx="48" />
+  <g transform="translate(160 120)">
+    <rect width="1120" height="520" rx="36" fill="rgba(10,12,24,0.65)" stroke="rgba(255,255,255,0.08)" stroke-width="2" filter="url(#shadow)" />
+    <g transform="translate(120 88)">
+      <text x="0" y="0" font-family="'Inter', 'Segoe UI', sans-serif" font-size="48" font-weight="700" fill="#FFFFFF">Automation rules</text>
+      <text x="0" y="44" font-family="'Inter', 'Segoe UI', sans-serif" font-size="20" fill="rgba(255,255,255,0.65)">Outline the repetitive finance admin you never want to do twice.</text>
+    </g>
+    <g transform="translate(120 160)">
+      <rect width="880" height="92" rx="22" fill="rgba(255,255,255,0.04)" />
+      <circle cx="56" cy="46" r="28" fill="#8FE3CF" opacity="0.9" />
+      <text x="120" y="40" font-family="'Inter', 'Segoe UI', sans-serif" font-size="24" fill="#FFFFFF" font-weight="600">Rule designer</text>
+      <text x="120" y="70" font-family="'Inter', 'Segoe UI', sans-serif" font-size="18" fill="rgba(255,255,255,0.65)">Match CSV imports, vendor names, and amount ranges in one place.</text>
+    </g>
+    <g transform="translate(120 276)">
+      <rect width="880" height="92" rx="22" fill="rgba(255,255,255,0.04)" />
+      <circle cx="56" cy="46" r="28" fill="#F8B26A" opacity="0.9" />
+      <text x="120" y="40" font-family="'Inter', 'Segoe UI', sans-serif" font-size="24" fill="#FFFFFF" font-weight="600">One-click reapply</text>
+      <text x="120" y="70" font-family="'Inter', 'Segoe UI', sans-serif" font-size="18" fill="rgba(255,255,255,0.65)">Run your saved rules on fresh statements in seconds.</text>
+    </g>
+    <g transform="translate(120 392)">
+      <rect width="880" height="92" rx="22" fill="rgba(255,255,255,0.04)" />
+      <circle cx="56" cy="46" r="28" fill="#F27E7E" opacity="0.9" />
+      <text x="120" y="40" font-family="'Inter', 'Segoe UI', sans-serif" font-size="24" fill="#FFFFFF" font-weight="600">Audit-ready history</text>
+      <text x="120" y="70" font-family="'Inter', 'Segoe UI', sans-serif" font-size="18" fill="rgba(255,255,255,0.65)">Review previous syncs, overrides, and manual edits with full context.</text>
+    </g>
+    <text x="560" y="500" font-family="'Inter', 'Segoe UI', sans-serif" font-size="20" fill="rgba(255,255,255,0.52)" text-anchor="middle">Swap this placeholder out with real automation screenshots.</text>
+  </g>
+</svg>
