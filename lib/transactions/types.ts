@@ -2,6 +2,12 @@ export type TransactionType = "income" | "expense" | "transfer"
 
 export type TransactionStatus = "pending" | "completed" | "cleared"
 
+export interface TransactionRecurrenceInput {
+  frequency: "monthly"
+  interval: number
+  startDate?: string
+}
+
 export interface Transaction {
   id: string
   date: string
@@ -56,6 +62,7 @@ export interface CreateTransactionInput {
   status: TransactionStatus
   type: TransactionType
   notes?: string | null
+  recurrence?: TransactionRecurrenceInput | null
 }
 
 export interface UpdateTransactionInput {
@@ -68,6 +75,27 @@ export interface UpdateTransactionInput {
   status?: TransactionStatus
   type?: TransactionType
   notes?: string | null
+  recurrence?: TransactionRecurrenceInput | null
+}
+
+export interface RecurringTransaction {
+  id: string
+  templateTransactionId: string
+  description: string
+  categoryId: string | null
+  categoryName: string
+  amount: number
+  account: string
+  status: TransactionStatus
+  type: TransactionType
+  notes: string | null
+  startDate: string
+  frequencyMonths: number
+  nextOccurrence: string
+  lastOccurrence: string | null
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
 }
 
 export interface ParsedCsvTransaction {

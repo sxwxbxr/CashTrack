@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache"
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 
@@ -27,6 +28,17 @@ const querySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(200).optional(),
 })
 
+const recurrenceSchema = z
+  .object({
+    frequency: z.literal("monthly"),
+    interval: z.coerce.number().int().min(1).max(120),
+    startDate: z
+      .string()
+      .optional()
+      .refine((value) => !value || !Number.isNaN(new Date(value).getTime()), { message: "Invalid start date" }),
+  })
+  .optional()
+
 const createSchema = z.object({
   date: z.string().min(1, "Date is required"),
   description: z.string().min(1, "Description is required"),
@@ -37,6 +49,7 @@ const createSchema = z.object({
   status: z.enum(["pending", "completed", "cleared"]).default("completed"),
   type: z.enum(["income", "expense"]),
   notes: z.string().optional(),
+  recurrence: recurrenceSchema,
 })
 
 type QueryParams = z.infer<typeof querySchema>
@@ -83,6 +96,8 @@ export async function POST(request: NextRequest) {
       ...parsed.data,
       categoryName: parsed.data.categoryName ?? "Uncategorized",
     })
+    revalidatePath("/")
+    revalidatePath("/reports")
     await recordUserAction(session.user, "transaction.create", "transaction", transaction.id, {
       amount: transaction.amount,
       description: transaction.description,

@@ -44,6 +44,8 @@ export interface TransactionFormValues {
   type: TransactionType
   status: TransactionStatus
   notes: string
+  recurrenceType: "one-time" | "recurring"
+  recurrenceInterval: string
 }
 
 interface TransactionFormDialogProps {
@@ -71,6 +73,8 @@ const createDefaultValues = (defaultAccount = ""): TransactionFormValues => ({
   type: "expense",
   status: "completed",
   notes: "",
+  recurrenceType: "one-time",
+  recurrenceInterval: "1",
 })
 
 export function TransactionFormDialog({
@@ -104,7 +108,11 @@ export function TransactionFormDialog({
 
     setError(null)
     if (initialValues) {
-      setFormData({ ...initialValues })
+      setFormData({
+        ...initialValues,
+        recurrenceType: initialValues.recurrenceType ?? "one-time",
+        recurrenceInterval: initialValues.recurrenceInterval ?? "1",
+      })
       return
     }
 
@@ -140,6 +148,13 @@ export function TransactionFormDialog({
       }
       if (!formData.amount) {
         throw new Error(t("Amount is required"))
+      }
+
+      if (formData.recurrenceType === "recurring") {
+        const interval = Number.parseInt(formData.recurrenceInterval, 10)
+        if (!Number.isFinite(interval) || interval <= 0) {
+          throw new Error(t("Repeat interval must be at least 1 month"))
+        }
       }
 
       const payload: TransactionFormValues = {
@@ -337,6 +352,45 @@ export function TransactionFormDialog({
                 </Select>
               </div>
             </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="transaction-recurrence">{t("Recurrence")}</Label>
+                <Select
+                  value={formData.recurrenceType}
+                  onValueChange={(value) =>
+                    setFormData((prev) => ({ ...prev, recurrenceType: value as "one-time" | "recurring" }))
+                  }
+                  disabled={mode === "edit"}
+                >
+                  <SelectTrigger id="transaction-recurrence">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="one-time">{t("One-time")}</SelectItem>
+                    <SelectItem value="recurring">{t("Recurring")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="transaction-recurrence-interval">{t("Repeat every (months)")}</Label>
+                <Input
+                  id="transaction-recurrence-interval"
+                  type="number"
+                  min="1"
+                  value={formData.recurrenceInterval}
+                  onChange={(event) =>
+                    setFormData((prev) => ({ ...prev, recurrenceInterval: event.target.value }))
+                  }
+                  disabled={mode === "edit" || formData.recurrenceType !== "recurring"}
+                />
+              </div>
+            </div>
+            {mode === "edit" ? (
+              <p className="text-xs text-muted-foreground">
+                {t("Recurring settings can only be configured when creating a transaction.")}
+              </p>
+            ) : null}
 
             <div className="space-y-2">
               <Label htmlFor="transaction-notes">{t("Notes (optional)")}</Label>

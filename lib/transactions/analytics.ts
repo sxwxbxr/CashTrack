@@ -1,5 +1,6 @@
 import { initDatabase, getDatabase } from "@/lib/db"
 import { listTransactions as listTransactionRecords } from "@/lib/transactions/repository"
+import { processRecurringTransactions } from "@/lib/transactions/service"
 
 void initDatabase()
 
@@ -128,6 +129,7 @@ function normalizeCategoryColor(color: string | null | undefined): string {
 
 export async function getDashboardAnalytics(): Promise<DashboardAnalytics> {
   const db = getDatabase()
+  await processRecurringTransactions()
   const now = new Date()
   const currentStartDate = startOfMonth(now)
   const nextMonthStart = addMonths(currentStartDate, 1)

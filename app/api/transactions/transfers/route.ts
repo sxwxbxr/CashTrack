@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache"
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 
@@ -34,6 +35,9 @@ export async function POST(request: NextRequest) {
       status: parsed.data.status,
       notes: parsed.data.notes,
     })
+
+    revalidatePath("/")
+    revalidatePath("/reports")
 
     await recordUserAction(session.user, "transaction.transfer", "transaction", transferId, {
       amount: parsed.data.amount,

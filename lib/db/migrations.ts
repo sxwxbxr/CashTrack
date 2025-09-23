@@ -3,6 +3,7 @@ import {
   CREATE_ACCOUNTS_TABLE,
   CREATE_AUTOMATION_RULES_TABLE,
   CREATE_CATEGORIES_TABLE,
+  CREATE_RECURRING_TRANSACTIONS_TABLE,
   CREATE_SETTINGS_TABLE,
   CREATE_SYNC_LOG_TABLE,
   CREATE_TRANSACTIONS_TABLE,
@@ -23,6 +24,7 @@ function ensureIndexes() {
     "CREATE INDEX IF NOT EXISTS idx_user_activity_createdAt ON user_activity(createdAt DESC)",
     "CREATE INDEX IF NOT EXISTS idx_user_activity_userId ON user_activity(userId)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_name ON accounts(name)",
+    "CREATE INDEX IF NOT EXISTS idx_recurring_transactions_nextOccurrence ON recurring_transactions(nextOccurrence)",
   ]
 
   for (const statement of statements) {
@@ -55,6 +57,7 @@ export function runMigrations(): void {
     CREATE_CATEGORIES_TABLE,
     CREATE_ACCOUNTS_TABLE,
     CREATE_TRANSACTIONS_TABLE,
+    CREATE_RECURRING_TRANSACTIONS_TABLE,
     CREATE_AUTOMATION_RULES_TABLE,
     CREATE_SYNC_LOG_TABLE,
     CREATE_SETTINGS_TABLE,

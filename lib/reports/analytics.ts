@@ -2,6 +2,7 @@ import { initDatabase, getDatabase } from "@/lib/db"
 import type Database from "better-sqlite3"
 
 import { tailwindBgClassToHex, DEFAULT_CHART_COLORS } from "@/lib/colors"
+import { processRecurringTransactions } from "@/lib/transactions/service"
 
 export type ReportPeriodKey = "last-3-months" | "last-6-months" | "last-12-months" | "current-year"
 
@@ -178,6 +179,7 @@ async function resolveDatabase(): Promise<Database> {
 
 export async function getReportAnalytics(period: ReportPeriodKey): Promise<ReportAnalytics> {
   const db = await resolveDatabase()
+  await processRecurringTransactions()
   const now = new Date()
   let start = startOfMonth(now)
   let end = addMonths(start, 1)

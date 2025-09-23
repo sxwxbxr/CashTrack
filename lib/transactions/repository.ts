@@ -2,7 +2,7 @@ import type Database from "better-sqlite3"
 
 import { getDatabase, initDatabase, withTransaction } from "../db"
 import { recordSyncLog } from "../db/sync-log"
-import type { Transaction, TransactionStatus, TransactionType } from "./types"
+import type { RecurringTransaction, Transaction, TransactionStatus, TransactionType } from "./types"
 
 const databaseReady = initDatabase()
 
@@ -21,6 +21,26 @@ interface TransactionRow {
   notes: string | null
   transferGroupId: string | null
   transferDirection: "in" | "out" | null
+  createdAt: string
+  updatedAt: string
+}
+
+interface RecurringTransactionRow {
+  id: string
+  templateTransactionId: string
+  description: string
+  categoryId: string | null
+  categoryName: string
+  amount: number
+  account: string
+  status: TransactionStatus
+  type: TransactionType
+  notes: string | null
+  startDate: string
+  frequencyMonths: number
+  nextOccurrence: string
+  lastOccurrence: string | null
+  isActive: number
   createdAt: string
   updatedAt: string
 }
@@ -66,6 +86,28 @@ function mapRow(row: TransactionRow): Transaction {
     notes: row.notes ?? null,
     transferGroupId: row.transferGroupId ?? null,
     transferDirection: row.transferDirection ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}
+
+function mapRecurringRow(row: RecurringTransactionRow): RecurringTransaction {
+  return {
+    id: row.id,
+    templateTransactionId: row.templateTransactionId,
+    description: row.description,
+    categoryId: row.categoryId ?? null,
+    categoryName: row.categoryName,
+    amount: row.amount,
+    account: row.account,
+    status: row.status,
+    type: row.type,
+    notes: row.notes ?? null,
+    startDate: row.startDate,
+    frequencyMonths: row.frequencyMonths,
+    nextOccurrence: row.nextOccurrence,
+    lastOccurrence: row.lastOccurrence ?? null,
+    isActive: row.isActive === 1,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -373,4 +415,278 @@ export async function bulkInsertTransactions(records: CreateTransactionRecord[],
   }
 
   return withTransaction((connection) => insertMany(connection))
+}
+
+export interface RecurringTransactionRecord {
+  id: string
+  templateTransactionId: string
+  description: string
+  categoryId: string | null
+  categoryName: string
+  amount: number
+  account: string
+  status: TransactionStatus
+  type: TransactionType
+  notes: string | null
+  startDate: string
+  frequencyMonths: number
+  nextOccurrence: string
+  lastOccurrence: string | null
+  isActive: boolean
+}
+
+export interface RecurringTransactionUpdate {
+  description?: string
+  categoryId?: string | null
+  categoryName?: string
+  amount?: number
+  account?: string
+  status?: TransactionStatus
+  type?: TransactionType
+  notes?: string | null
+  startDate?: string
+  frequencyMonths?: number
+  nextOccurrence?: string
+  lastOccurrence?: string | null
+  isActive?: boolean
+}
+
+export async function insertRecurringTransaction(
+  record: RecurringTransactionRecord,
+  db?: Database,
+): Promise<RecurringTransaction> {
+  const connection = await resolveDatabase(db)
+  const timestamp = new Date().toISOString()
+  const row: RecurringTransactionRow = {
+    ...record,
+    notes: record.notes ?? null,
+    categoryId: record.categoryId ?? null,
+    lastOccurrence: record.lastOccurrence ?? null,
+    isActive: record.isActive ? 1 : 0,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  }
+
+  connection
+    .prepare(
+      `INSERT INTO recurring_transactions (
+         id,
+         templateTransactionId,
+         description,
+         categoryId,
+         categoryName,
+         amount,
+         account,
+         status,
+         type,
+         notes,
+         startDate,
+         frequencyMonths,
+         nextOccurrence,
+         lastOccurrence,
+         isActive,
+         createdAt,
+         updatedAt
+       ) VALUES (@id, @templateTransactionId, @description, @categoryId, @categoryName, @amount, @account, @status, @type, @notes, @startDate, @frequencyMonths, @nextOccurrence, @lastOccurrence, @isActive, @createdAt, @updatedAt)`
+    )
+    .run(row)
+
+  return mapRecurringRow(row)
+}
+
+export async function getRecurringTransactionByTemplateId(
+  templateTransactionId: string,
+  db?: Database,
+): Promise<RecurringTransaction | null> {
+  const connection = await resolveDatabase(db)
+  const statement = connection.prepare(
+    `SELECT
+       id,
+       templateTransactionId,
+       description,
+       categoryId,
+       categoryName,
+       amount,
+       account,
+       status,
+       type,
+       notes,
+       startDate,
+       frequencyMonths,
+       nextOccurrence,
+       lastOccurrence,
+       isActive,
+       createdAt,
+       updatedAt
+     FROM recurring_transactions
+     WHERE templateTransactionId = ?
+     LIMIT 1`,
+  )
+
+  const row = statement.get(templateTransactionId) as RecurringTransactionRow | undefined
+  return row ? mapRecurringRow(row) : null
+}
+
+export async function listDueRecurringTransactions(
+  onOrBefore: string,
+  db?: Database,
+): Promise<RecurringTransaction[]> {
+  const connection = await resolveDatabase(db)
+  const statement = connection.prepare(
+    `SELECT
+       id,
+       templateTransactionId,
+       description,
+       categoryId,
+       categoryName,
+       amount,
+       account,
+       status,
+       type,
+       notes,
+       startDate,
+       frequencyMonths,
+       nextOccurrence,
+       lastOccurrence,
+       isActive,
+       createdAt,
+       updatedAt
+     FROM recurring_transactions
+     WHERE isActive = 1 AND nextOccurrence <= ?
+     ORDER BY nextOccurrence ASC`
+  )
+
+  const rows = statement.all(onOrBefore) as RecurringTransactionRow[]
+  return rows.map(mapRecurringRow)
+}
+
+export async function updateRecurringTransactionById(
+  id: string,
+  updates: RecurringTransactionUpdate,
+  db?: Database,
+): Promise<void> {
+  const connection = await resolveDatabase(db)
+  const fields: string[] = []
+  const parameters: unknown[] = []
+
+  if (Object.prototype.hasOwnProperty.call(updates, "description")) {
+    fields.push("description = ?")
+    parameters.push(updates.description ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "categoryId")) {
+    fields.push("categoryId = ?")
+    parameters.push(updates.categoryId ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "categoryName")) {
+    fields.push("categoryName = ?")
+    parameters.push(updates.categoryName ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "amount")) {
+    fields.push("amount = ?")
+    parameters.push(updates.amount ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "account")) {
+    fields.push("account = ?")
+    parameters.push(updates.account ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "status")) {
+    fields.push("status = ?")
+    parameters.push(updates.status ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "type")) {
+    fields.push("type = ?")
+    parameters.push(updates.type ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "notes")) {
+    fields.push("notes = ?")
+    parameters.push(updates.notes ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "startDate")) {
+    fields.push("startDate = ?")
+    parameters.push(updates.startDate ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "frequencyMonths")) {
+    fields.push("frequencyMonths = ?")
+    parameters.push(updates.frequencyMonths ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "nextOccurrence")) {
+    fields.push("nextOccurrence = ?")
+    parameters.push(updates.nextOccurrence ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "lastOccurrence")) {
+    fields.push("lastOccurrence = ?")
+    parameters.push(updates.lastOccurrence ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "isActive")) {
+    fields.push("isActive = ?")
+    parameters.push(updates.isActive ? 1 : 0)
+  }
+
+  if (fields.length === 0) {
+    return
+  }
+
+  fields.push("updatedAt = ?")
+  const timestamp = new Date().toISOString()
+  parameters.push(timestamp)
+  parameters.push(id)
+
+  connection
+    .prepare(`UPDATE recurring_transactions SET ${fields.join(", ")} WHERE id = ?`)
+    .run(...parameters)
+}
+
+export async function updateRecurringTransactionByTemplateId(
+  templateTransactionId: string,
+  updates: RecurringTransactionUpdate,
+  db?: Database,
+): Promise<void> {
+  const connection = await resolveDatabase(db)
+  const fields: string[] = []
+  const parameters: unknown[] = []
+
+  if (Object.prototype.hasOwnProperty.call(updates, "description")) {
+    fields.push("description = ?")
+    parameters.push(updates.description ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "categoryId")) {
+    fields.push("categoryId = ?")
+    parameters.push(updates.categoryId ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "categoryName")) {
+    fields.push("categoryName = ?")
+    parameters.push(updates.categoryName ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "amount")) {
+    fields.push("amount = ?")
+    parameters.push(updates.amount ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "account")) {
+    fields.push("account = ?")
+    parameters.push(updates.account ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "status")) {
+    fields.push("status = ?")
+    parameters.push(updates.status ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "type")) {
+    fields.push("type = ?")
+    parameters.push(updates.type ?? null)
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "notes")) {
+    fields.push("notes = ?")
+    parameters.push(updates.notes ?? null)
+  }
+  if (fields.length === 0) {
+    return
+  }
+
+  fields.push("updatedAt = ?")
+  const timestamp = new Date().toISOString()
+  parameters.push(timestamp)
+  parameters.push(templateTransactionId)
+
+  connection
+    .prepare(`UPDATE recurring_transactions SET ${fields.join(", ")} WHERE templateTransactionId = ?`)
+    .run(...parameters)
 }

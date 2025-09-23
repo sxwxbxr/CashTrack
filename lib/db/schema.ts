@@ -50,6 +50,29 @@ export const CREATE_TRANSACTIONS_TABLE = `
   )
 `
 
+export const CREATE_RECURRING_TRANSACTIONS_TABLE = `
+  CREATE TABLE IF NOT EXISTS recurring_transactions (
+    id TEXT PRIMARY KEY,
+    templateTransactionId TEXT NOT NULL,
+    description TEXT NOT NULL,
+    categoryId TEXT,
+    categoryName TEXT NOT NULL,
+    amount REAL NOT NULL,
+    account TEXT NOT NULL,
+    status TEXT NOT NULL,
+    type TEXT NOT NULL,
+    notes TEXT,
+    startDate TEXT NOT NULL,
+    frequencyMonths INTEGER NOT NULL DEFAULT 1,
+    nextOccurrence TEXT NOT NULL,
+    lastOccurrence TEXT,
+    isActive INTEGER NOT NULL DEFAULT 1,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    FOREIGN KEY (templateTransactionId) REFERENCES transactions(id) ON DELETE CASCADE
+  )
+`
+
 export const CREATE_AUTOMATION_RULES_TABLE = `
   CREATE TABLE IF NOT EXISTS automation_rules (
     id TEXT PRIMARY KEY,

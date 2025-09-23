@@ -252,6 +252,16 @@ export default function TransactionsPage() {
       throw new Error(t("Amount must be a number"))
     }
 
+    const parsedInterval = Number.parseInt(values.recurrenceInterval, 10)
+    const recurrence =
+      values.recurrenceType === "recurring" && Number.isFinite(parsedInterval) && parsedInterval > 0
+        ? {
+            frequency: "monthly" as const,
+            interval: Math.max(1, parsedInterval),
+            startDate: values.date,
+          }
+        : undefined
+
     const payload = {
       date: values.date,
       description: values.description,
@@ -262,6 +272,7 @@ export default function TransactionsPage() {
       status: values.status,
       type: values.type,
       ...(values.notes ? { notes: values.notes } : {}),
+      ...(formMode === "create" && recurrence ? { recurrence } : {}),
     }
 
     if (formMode === "create") {
@@ -454,6 +465,8 @@ export default function TransactionsPage() {
       type: selectedTransaction.type,
       status: selectedTransaction.status,
       notes: selectedTransaction.notes ?? "",
+      recurrenceType: "one-time",
+      recurrenceInterval: "1",
     }
   }, [selectedTransaction])
 

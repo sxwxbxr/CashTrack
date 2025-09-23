@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache"
 import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 
@@ -28,6 +29,8 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     }
 
     const transaction = await updateTransaction(params.id, parsed.data)
+    revalidatePath("/")
+    revalidatePath("/reports")
     await recordUserAction(session.user, "transaction.update", "transaction", transaction.id, {
       changes: parsed.data,
     })
@@ -47,6 +50,8 @@ export async function DELETE(_request: NextRequest, { params }: { params: { id: 
   try {
     const session = await requireSession()
     await deleteTransaction(params.id)
+    revalidatePath("/")
+    revalidatePath("/reports")
     await recordUserAction(session.user, "transaction.delete", "transaction", params.id)
     return NextResponse.json({ success: true })
   } catch (error) {

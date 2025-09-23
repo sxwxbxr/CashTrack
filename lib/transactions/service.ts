@@ -11,17 +11,25 @@ import {
   calculateTransactionTotals,
   countTransactions,
   CreateTransactionRecord,
+  insertRecurringTransaction,
   deleteTransaction as deleteTransactionRecord,
+  getRecurringTransactionByTemplateId,
   getTransactionById as getTransactionRecordById,
+  insertTransaction as insertTransactionRecord,
   listTransactions as listTransactionRecords,
+  listDueRecurringTransactions,
+  RecurringTransactionRecord,
+  RecurringTransactionUpdate,
   TransactionFilters,
   TransactionQueryOptions,
+  updateRecurringTransactionById,
+  updateRecurringTransactionByTemplateId,
   updateTransaction as updateTransactionRecord,
-  insertTransaction as insertTransactionRecord,
 } from "@/lib/transactions/repository"
 import type {
   CreateTransactionInput,
   CreateTransferInput,
+  TransactionRecurrenceInput,
   ParsedCsvTransaction,
   Transaction,
   TransactionListParams,
@@ -85,6 +93,25 @@ function resolveType(type?: string): TransactionType {
     return type as TransactionType
   }
   return "expense"
+}
+
+function addMonthsToDateString(date: string, months: number): string {
+  const parsed = new Date(`${date}T00:00:00Z`)
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`Invalid date: ${date}`)
+  }
+  const result = new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth() + months, parsed.getUTCDate()))
+  return result.toISOString().slice(0, 10)
+}
+
+function normalizeRecurrence(
+  recurrence: TransactionRecurrenceInput,
+  transactionDate: string,
+): { interval: number; startDate: string } {
+  const rawInterval = Number.isFinite(recurrence.interval) ? Math.trunc(recurrence.interval) : 0
+  const interval = Math.max(1, Math.min(120, rawInterval))
+  const startDate = recurrence.startDate ? normalizeDate(recurrence.startDate) : transactionDate
+  return { interval, startDate }
 }
 
 async function resolveCategoryReference(
@@ -209,6 +236,8 @@ export async function listTransactions(params: TransactionListParams): Promise<T
   const safePageSize = Math.max(Math.min(pageSize, 200), 1)
   const offset = (safePage - 1) * safePageSize
 
+  await processRecurringTransactions()
+
   const filters = buildFiltersFromParams(params)
   const options: TransactionQueryOptions = {
     orderBy: ORDERABLE_FIELDS[sortField] ?? "date",
@@ -264,6 +293,111 @@ async function prepareTransactionRecord(
   }
 }
 
+async function scheduleRecurringTransaction(
+  transaction: Transaction,
+  recurrence: TransactionRecurrenceInput,
+  db: Database,
+): Promise<void> {
+  if (transaction.type === "transfer") {
+    return
+  }
+
+  const { interval, startDate } = normalizeRecurrence(recurrence, transaction.date)
+  const lastOccurrence = transaction.date
+  const nextOccurrence = addMonthsToDateString(lastOccurrence, interval)
+
+  const record: RecurringTransactionRecord = {
+    id: `rtxn_${randomUUID()}`,
+    templateTransactionId: transaction.id,
+    description: transaction.description,
+    categoryId: transaction.categoryId,
+    categoryName: transaction.categoryName,
+    amount: Math.abs(transaction.amount),
+    account: transaction.account,
+    status: transaction.status,
+    type: transaction.type,
+    notes: transaction.notes ?? null,
+    startDate,
+    frequencyMonths: interval,
+    nextOccurrence,
+    lastOccurrence,
+    isActive: true,
+  }
+
+  await insertRecurringTransaction(record, db)
+}
+
+export async function processRecurringTransactions(
+  currentDate?: string,
+  db?: Database,
+): Promise<number> {
+  const targetDate = currentDate ? normalizeDate(currentDate) : new Date().toISOString().slice(0, 10)
+
+  const run = async (connection: Database): Promise<number> => {
+    const schedules = await listDueRecurringTransactions(targetDate, connection)
+    if (schedules.length === 0) {
+      return 0
+    }
+
+    let created = 0
+
+    for (const schedule of schedules) {
+      const interval = Math.max(1, Math.trunc(schedule.frequencyMonths || 1))
+      const occurrences: string[] = []
+      let nextDate = schedule.nextOccurrence
+
+      while (nextDate <= targetDate) {
+        occurrences.push(nextDate)
+        nextDate = addMonthsToDateString(nextDate, interval)
+      }
+
+      if (occurrences.length === 0) {
+        continue
+      }
+
+      const ensuredAccount = await ensureAccountExists(schedule.account, connection)
+
+      for (const occurrenceDate of occurrences) {
+        const record: CreateTransactionRecord = {
+          id: `txn_${randomUUID()}`,
+          date: occurrenceDate,
+          description: schedule.description,
+          categoryId: schedule.categoryId,
+          categoryName: schedule.categoryName,
+          amount:
+            schedule.type === "expense"
+              ? -Math.abs(schedule.amount)
+              : Math.abs(schedule.amount),
+          account: ensuredAccount.name,
+          status: schedule.status,
+          type: schedule.type,
+          notes: schedule.notes ?? null,
+          transferGroupId: null,
+          transferDirection: null,
+        }
+
+        await insertTransactionRecord(record, connection)
+        created += 1
+      }
+
+      const update: RecurringTransactionUpdate = {
+        nextOccurrence: nextDate,
+        lastOccurrence: occurrences[occurrences.length - 1],
+      }
+
+      await updateRecurringTransactionById(schedule.id, update, connection)
+    }
+
+    return created
+  }
+
+  if (db) {
+    return run(db)
+  }
+
+  return withTransaction((connection) => run(connection))
+}
+
 export async function createTransaction(input: CreateTransactionInput): Promise<Transaction> {
   if (input.type === "transfer") {
     throw new Error("Transfers must be created using the transfer workflow")
@@ -271,7 +405,11 @@ export async function createTransaction(input: CreateTransactionInput): Promise<
 
   return withTransaction(async (db) => {
     const record = await prepareTransactionRecord(input, db)
-    return insertTransactionRecord(record, db)
+    const transaction = await insertTransactionRecord(record, db)
+    if (input.recurrence) {
+      await scheduleRecurringTransaction(transaction, input.recurrence, db)
+    }
+    return transaction
   })
 }
 
@@ -339,6 +477,22 @@ export async function updateTransaction(id: string, updates: UpdateTransactionIn
 
     if (!updated) {
       throw new Error("Transaction not found")
+    }
+
+    const recurring = await getRecurringTransactionByTemplateId(id, db)
+    if (recurring) {
+      const recurrenceUpdates: RecurringTransactionUpdate = {
+        description: updated.description,
+        categoryId: updated.categoryId,
+        categoryName: updated.categoryName,
+        amount: Math.abs(updated.amount),
+        account: updated.account,
+        status: updated.status,
+        type: updated.type,
+        notes: updated.notes ?? null,
+      }
+
+      await updateRecurringTransactionByTemplateId(id, recurrenceUpdates, db)
     }
 
     return updated

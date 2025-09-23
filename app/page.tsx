@@ -12,6 +12,8 @@ import { getDashboardAnalytics } from "@/lib/transactions/analytics"
 import { getTranslator, type Translator } from "@/lib/i18n/server"
 import { getAppSettings } from "@/lib/settings/service"
 
+export const dynamic = "force-dynamic"
+
 function formatChangeText(t: Translator, value: number | null): string {
   if (value === null || Number.isNaN(value)) {
     return t("No previous month data")
