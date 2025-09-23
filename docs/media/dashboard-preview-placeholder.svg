@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="760" viewBox="0 0 1440 760">
+  <defs>
+    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5B8DEF" />
+      <stop offset="100%" stop-color="#1E1E2F" />
+    </linearGradient>
+    <linearGradient id="card" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#101323" stop-opacity="0.85" />
+      <stop offset="100%" stop-color="#1F2545" stop-opacity="0.95" />
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feOffset dx="0" dy="18" result="offset" />
+      <feGaussianBlur in="offset" stdDeviation="24" result="blur" />
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.09  0 0 0 0 0.12  0 0 0 0 0.21  0 0 0 0.35 0" />
+    </filter>
+  </defs>
+  <rect width="1440" height="760" fill="url(#gradient)" rx="48" />
+  <g transform="translate(120 110)">
+    <rect width="1200" height="540" rx="36" fill="url(#card)" filter="url(#softShadow)" stroke="rgba(255,255,255,0.08)" stroke-width="2" />
+    <g transform="translate(80 72)">
+      <rect width="480" height="120" rx="24" fill="rgba(255,255,255,0.06)" />
+      <text x="40" y="56" font-family="'Inter', 'Segoe UI', sans-serif" font-size="28" fill="#FFFFFF" font-weight="600">Household cash flow</text>
+      <text x="40" y="96" font-family="'Inter', 'Segoe UI', sans-serif" font-size="20" fill="rgba(255,255,255,0.68)">12 month rolling outlook</text>
+      <g transform="translate(320 12)">
+        <path d="M0,76 C40,32 64,24 96,52 C128,80 160,60 192,28" fill="none" stroke="#8FE3CF" stroke-width="6" stroke-linecap="round" />
+        <circle cx="0" cy="76" r="6" fill="#8FE3CF" />
+        <circle cx="96" cy="52" r="6" fill="#8FE3CF" />
+        <circle cx="192" cy="28" r="6" fill="#8FE3CF" />
+      </g>
+    </g>
+    <g transform="translate(80 232)">
+      <rect width="400" height="216" rx="24" fill="rgba(255,255,255,0.04)" />
+      <text x="32" y="56" font-family="'Inter', 'Segoe UI', sans-serif" font-size="24" fill="#FFFFFF" font-weight="600">Budget utilisation</text>
+      <text x="32" y="96" font-family="'Inter', 'Segoe UI', sans-serif" font-size="18" fill="rgba(255,255,255,0.6)">Category breakdown</text>
+      <g transform="translate(60 120)">
+        <circle cx="68" cy="68" r="68" fill="rgba(255,255,255,0.05)" stroke="#8FE3CF" stroke-width="10" stroke-dasharray="320" stroke-dashoffset="80" />
+        <circle cx="68" cy="68" r="48" fill="none" stroke="#F8B26A" stroke-width="10" stroke-dasharray="220" stroke-dashoffset="120" />
+        <circle cx="68" cy="68" r="28" fill="none" stroke="#F27E7E" stroke-width="10" stroke-dasharray="160" stroke-dashoffset="60" />
+      </g>
+    </g>
+    <g transform="translate(520 232)">
+      <rect width="600" height="216" rx="24" fill="rgba(255,255,255,0.04)" />
+      <text x="32" y="56" font-family="'Inter', 'Segoe UI', sans-serif" font-size="24" fill="#FFFFFF" font-weight="600">Upcoming obligations</text>
+      <text x="32" y="96" font-family="'Inter', 'Segoe UI', sans-serif" font-size="18" fill="rgba(255,255,255,0.6)">Rules and reminders, ready to automate</text>
+      <g transform="translate(40 120)">
+        <rect x="0" y="0" width="520" height="32" rx="16" fill="rgba(255,255,255,0.08)" />
+        <rect x="0" y="48" width="440" height="32" rx="16" fill="rgba(143,227,207,0.55)" />
+        <rect x="0" y="96" width="360" height="32" rx="16" fill="rgba(248,178,106,0.55)" />
+        <rect x="0" y="144" width="460" height="32" rx="16" fill="rgba(242,126,126,0.55)" />
+      </g>
+    </g>
+    <text x="600" y="492" font-family="'Inter', 'Segoe UI', sans-serif" font-size="20" fill="rgba(255,255,255,0.55)" text-anchor="middle">
+      Replace with a real dashboard screenshot when you capture one.
+    </text>
+  </g>
+</svg>
