@@ -15,6 +15,10 @@ interface TransactionRow {
   categoryId: string | null
   categoryName: string
   amount: number
+  accountAmount: number
+  originalAmount: number
+  currency: string
+  exchangeRate: number
   account: string
   status: TransactionStatus
   type: TransactionType
@@ -60,6 +64,10 @@ function mapRow(row: TransactionRow): Transaction {
     categoryId: row.categoryId,
     categoryName: row.categoryName,
     amount: row.amount,
+    accountAmount: row.accountAmount,
+    originalAmount: row.originalAmount,
+    currency: row.currency,
+    exchangeRate: row.exchangeRate,
     account: row.account,
     status: row.status,
     type: row.type,
@@ -159,7 +167,7 @@ export async function listTransactions(
   const orderDirection = (options.orderDirection ?? "desc").toUpperCase() === "ASC" ? "ASC" : "DESC"
 
   let sql =
-    "SELECT id, date, description, categoryId, categoryName, amount, account, status, type, notes, transferGroupId, transferDirection, createdAt, updatedAt FROM transactions"
+    "SELECT id, date, description, categoryId, categoryName, amount, accountAmount, originalAmount, currency, exchangeRate, account, status, type, notes, transferGroupId, transferDirection, createdAt, updatedAt FROM transactions"
   if (clauses.length > 0) {
     sql += ` WHERE ${clauses.join(" AND ")}`
   }
@@ -220,6 +228,10 @@ export interface CreateTransactionRecord {
   categoryId: string | null
   categoryName: string
   amount: number
+  accountAmount: number
+  originalAmount: number
+  currency: string
+  exchangeRate: number
   account: string
   status: TransactionStatus
   type: TransactionType
@@ -234,6 +246,10 @@ export interface UpdateTransactionRecord {
   categoryId?: string | null
   categoryName?: string
   amount?: number
+  accountAmount?: number
+  originalAmount?: number
+  currency?: string
+  exchangeRate?: number
   account?: string
   status?: TransactionStatus
   type?: TransactionType
@@ -246,7 +262,7 @@ export async function getTransactionById(id: string, db?: Database): Promise<Tra
   const connection = await resolveDatabase(db)
   const row = connection
     .prepare(
-      "SELECT id, date, description, categoryId, categoryName, amount, account, status, type, notes, transferGroupId, transferDirection, createdAt, updatedAt FROM transactions WHERE id = ?"
+      "SELECT id, date, description, categoryId, categoryName, amount, accountAmount, originalAmount, currency, exchangeRate, account, status, type, notes, transferGroupId, transferDirection, createdAt, updatedAt FROM transactions WHERE id = ?"
     )
     .get(id) as TransactionRow | undefined
   return row ? mapRow(row) : null
@@ -266,8 +282,8 @@ export async function insertTransaction(record: CreateTransactionRecord, db?: Da
 
   connection
     .prepare(
-      `INSERT INTO transactions (id, date, description, categoryId, categoryName, amount, account, status, type, notes, transferGroupId, transferDirection, createdAt, updatedAt)
-       VALUES (@id, @date, @description, @categoryId, @categoryName, @amount, @account, @status, @type, @notes, @transferGroupId, @transferDirection, @createdAt, @updatedAt)`
+      `INSERT INTO transactions (id, date, description, categoryId, categoryName, amount, accountAmount, originalAmount, currency, exchangeRate, account, status, type, notes, transferGroupId, transferDirection, createdAt, updatedAt)
+       VALUES (@id, @date, @description, @categoryId, @categoryName, @amount, @accountAmount, @originalAmount, @currency, @exchangeRate, @account, @status, @type, @notes, @transferGroupId, @transferDirection, @createdAt, @updatedAt)`
     )
     .run(row)
 
@@ -311,6 +327,10 @@ export async function updateTransaction(
            categoryId = @categoryId,
            categoryName = @categoryName,
            amount = @amount,
+           accountAmount = @accountAmount,
+           originalAmount = @originalAmount,
+           currency = @currency,
+           exchangeRate = @exchangeRate,
            account = @account,
            status = @status,
            type = @type,
@@ -346,8 +366,8 @@ export async function bulkInsertTransactions(records: CreateTransactionRecord[],
   const insertMany = (connection: Database) => {
     const inserted: Transaction[] = []
     const statement = connection.prepare(
-      `INSERT INTO transactions (id, date, description, categoryId, categoryName, amount, account, status, type, notes, transferGroupId, transferDirection, createdAt, updatedAt)
-       VALUES (@id, @date, @description, @categoryId, @categoryName, @amount, @account, @status, @type, @notes, @transferGroupId, @transferDirection, @createdAt, @updatedAt)`
+      `INSERT INTO transactions (id, date, description, categoryId, categoryName, amount, accountAmount, originalAmount, currency, exchangeRate, account, status, type, notes, transferGroupId, transferDirection, createdAt, updatedAt)
+       VALUES (@id, @date, @description, @categoryId, @categoryName, @amount, @accountAmount, @originalAmount, @currency, @exchangeRate, @account, @status, @type, @notes, @transferGroupId, @transferDirection, @createdAt, @updatedAt)`
     )
 
     for (const record of records) {

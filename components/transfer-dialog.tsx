@@ -28,6 +28,7 @@ import { useTranslations } from "@/components/language-provider"
 interface AccountOption {
   id: string
   name: string
+  currency?: string
 }
 
 export interface TransferFormValues {
@@ -45,7 +46,9 @@ interface TransferDialogProps {
   onOpenChange: (open: boolean) => void
   accounts: AccountOption[]
   onSubmit: (values: TransferFormValues) => Promise<void>
-  onCreateAccount: (name: string) => Promise<AccountOption>
+  onCreateAccount: (input: { name: string; currency: string }) => Promise<AccountOption>
+  baseCurrency: string
+  availableCurrencies: string[]
 }
 
 const statusOptions: TransactionStatus[] = ["completed", "pending", "cleared"]
@@ -57,8 +60,11 @@ export function TransferDialog({
   accounts,
   onSubmit,
   onCreateAccount,
+  baseCurrency,
+  availableCurrencies,
 }: TransferDialogProps) {
   const { t } = useTranslations()
+  const normalizedBaseCurrency = baseCurrency.toUpperCase()
   const [formData, setFormData] = useState<TransferFormValues>({
     date: new Date().toISOString().split("T")[0],
     description: "",
@@ -73,6 +79,7 @@ export function TransferDialog({
   const [accountError, setAccountError] = useState<string | null>(null)
   const [isAccountDialogOpen, setIsAccountDialogOpen] = useState(false)
   const [newAccountName, setNewAccountName] = useState("")
+  const [newAccountCurrency, setNewAccountCurrency] = useState(normalizedBaseCurrency)
   const [isCreatingAccount, setIsCreatingAccount] = useState(false)
   const [accountDialogTarget, setAccountDialogTarget] = useState<"from" | "to" | null>(null)
   const accountsRef = useRef<AccountOption[]>(accounts)
@@ -96,10 +103,22 @@ export function TransferDialog({
     }))
   }, [open])
 
+  useEffect(() => {
+    if (!isAccountDialogOpen) {
+      setAccountError(null)
+      setNewAccountName("")
+      setNewAccountCurrency(normalizedBaseCurrency)
+    }
+  }, [isAccountDialogOpen, normalizedBaseCurrency])
+
   const accountOptions = useMemo(() => {
     const unique = new Map<string, AccountOption>()
     accounts.forEach((account) => {
-      unique.set(account.name.toLowerCase(), account)
+      const normalizedCurrency = account.currency?.toUpperCase()
+      unique.set(account.name.toLowerCase(), {
+        ...account,
+        currency: normalizedCurrency,
+      })
     })
     if (formData.fromAccount) {
       const key = formData.fromAccount.toLowerCase()
@@ -113,12 +132,31 @@ export function TransferDialog({
         unique.set(key, { id: `local:${key}`, name: formData.toAccount })
       }
     }
-    return Array.from(unique.values()).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+    return Array.from(unique.values()).sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    )
   }, [accounts, formData.fromAccount, formData.toAccount])
+
+  const currencyOptions = useMemo(() => {
+    const set = new Set<string>()
+    availableCurrencies.forEach((code) => {
+      if (typeof code === "string" && code.trim()) {
+        set.add(code.trim().toUpperCase())
+      }
+    })
+    accounts.forEach((account) => {
+      if (account.currency) {
+        set.add(account.currency.toUpperCase())
+      }
+    })
+    set.add(normalizedBaseCurrency)
+    return Array.from(set).sort()
+  }, [availableCurrencies, accounts, normalizedBaseCurrency])
 
   const resetAccountDialog = () => {
     setAccountError(null)
     setNewAccountName("")
+    setNewAccountCurrency(normalizedBaseCurrency)
     setAccountDialogTarget(null)
   }
 
@@ -128,6 +166,7 @@ export function TransferDialog({
       setIsAccountDialogOpen(true)
       setAccountError(null)
       setNewAccountName("")
+      setNewAccountCurrency(normalizedBaseCurrency)
       return
     }
     setFormData((prev) => ({ ...prev, [target === "from" ? "fromAccount" : "toAccount"]: value }))
@@ -147,10 +186,11 @@ export function TransferDialog({
       setAccountError(t("Account name is required"))
       return
     }
+    const currencyCode = newAccountCurrency.trim().toUpperCase() || normalizedBaseCurrency
     setAccountError(null)
     setIsCreatingAccount(true)
     try {
-      const account = await onCreateAccount(trimmed)
+      const account = await onCreateAccount({ name: trimmed, currency: currencyCode })
       setFormData((prev) => ({
         ...prev,
         [accountDialogTarget === "to" ? "toAccount" : "fromAccount"]: account.name,
@@ -208,13 +248,13 @@ export function TransferDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-[520px]">
           <DialogHeader>
-            <DialogTitle>{t("New Transfer")}</DialogTitle>
+            <DialogTitle>{t("New transfer")}</DialogTitle>
             <DialogDescription>
-              {t("Move money between your accounts without affecting your budgets.")}
+              {t("Move funds between your accounts. Amounts will be converted using current exchange rates if needed.")}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="transfer-date">{t("Date")}</Label>
                 <Input
@@ -225,6 +265,66 @@ export function TransferDialog({
                   required
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="transfer-amount">{t("Amount")}</Label>
+                <Input
+                  id="transfer-amount"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0.00"
+                  value={formData.amount}
+                  onChange={(event) => setFormData((prev) => ({ ...prev, amount: event.target.value }))}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="transfer-from">{t("From account")}</Label>
+                <Select
+                  value={formData.fromAccount}
+                  onValueChange={(value) => handleAccountSelect(value, "from")}
+                >
+                  <SelectTrigger id="transfer-from">
+                    <SelectValue placeholder={t("Select account") ?? undefined} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accountOptions.map((account) => (
+                      <SelectItem key={account.id} value={account.name}>
+                        {account.currency ? `${account.name} · ${account.currency.toUpperCase()}` : account.name}
+                      </SelectItem>
+                    ))}
+                    <SelectSeparator />
+                    <SelectItem value={NEW_ACCOUNT_VALUE} className="font-medium text-primary">
+                      {t("Create new account")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="transfer-to">{t("To account")}</Label>
+                <Select value={formData.toAccount} onValueChange={(value) => handleAccountSelect(value, "to")}>
+                  <SelectTrigger id="transfer-to">
+                    <SelectValue placeholder={t("Select account") ?? undefined} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accountOptions.map((account) => (
+                      <SelectItem key={account.id} value={account.name}>
+                        {account.currency ? `${account.name} · ${account.currency.toUpperCase()}` : account.name}
+                      </SelectItem>
+                    ))}
+                    <SelectSeparator />
+                    <SelectItem value={NEW_ACCOUNT_VALUE} className="font-medium text-primary">
+                      {t("Create new account")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="transfer-status">{t("Status")}</Label>
                 <Select
@@ -245,84 +345,15 @@ export function TransferDialog({
                   </SelectContent>
                 </Select>
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="transfer-description">{t("Description")}</Label>
-              <Input
-                id="transfer-description"
-                placeholder={t("e.g. Move funds to savings") ?? undefined}
-                value={formData.description}
-                onChange={(event) => setFormData((prev) => ({ ...prev, description: event.target.value }))}
-              />
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="transfer-from">{t("From account")}</Label>
-                <Select value={formData.fromAccount} onValueChange={(value) => handleAccountSelect(value, "from")}>
-                  <SelectTrigger id="transfer-from">
-                    <SelectValue placeholder={t("Select account") ?? undefined} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accountOptions.map((account) => (
-                      <SelectItem key={account.id} value={account.name}>
-                        {account.name}
-                      </SelectItem>
-                    ))}
-                    <SelectSeparator />
-                    <SelectItem value={NEW_ACCOUNT_VALUE} className="font-medium text-primary">
-                      {t("Create new account")}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="transfer-to">{t("To account")}</Label>
-                <Select value={formData.toAccount} onValueChange={(value) => handleAccountSelect(value, "to")}>
-                  <SelectTrigger id="transfer-to">
-                    <SelectValue placeholder={t("Select account") ?? undefined} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accountOptions.map((account) => (
-                      <SelectItem key={account.id} value={account.name}>
-                        {account.name}
-                      </SelectItem>
-                    ))}
-                    <SelectSeparator />
-                    <SelectItem value={NEW_ACCOUNT_VALUE} className="font-medium text-primary">
-                      {t("Create new account")}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="transfer-amount">{t("Amount")}</Label>
-                <Input
-                  id="transfer-amount"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={formData.amount}
-                  onChange={(event) => setFormData((prev) => ({ ...prev, amount: event.target.value }))}
-                  required
+                <Label htmlFor="transfer-notes">{t("Notes (optional)")}</Label>
+                <Textarea
+                  id="transfer-notes"
+                  value={formData.notes}
+                  onChange={(event) => setFormData((prev) => ({ ...prev, notes: event.target.value }))}
+                  rows={3}
                 />
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="transfer-notes">{t("Notes (optional)")}</Label>
-              <Textarea
-                id="transfer-notes"
-                rows={3}
-                value={formData.notes}
-                onChange={(event) => setFormData((prev) => ({ ...prev, notes: event.target.value }))}
-                placeholder={t("Add any additional details") ?? undefined}
-              />
             </div>
 
             {error && <p className="text-sm text-red-500">{error}</p>}
@@ -344,23 +375,43 @@ export function TransferDialog({
           <DialogHeader>
             <DialogTitle>{t("Create account")}</DialogTitle>
             <DialogDescription>
-              {t("Add a new account to keep transfers organized.")}
+              {t("Add a new account to keep transactions organized by where money is stored or spent.")}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreateAccount} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="transfer-new-account">{t("Account name")}</Label>
+              <Label htmlFor="transfer-new-account-name">{t("Account name")}</Label>
               <Input
-                id="transfer-new-account"
+                id="transfer-new-account-name"
                 value={newAccountName}
                 onChange={(event) => setNewAccountName(event.target.value)}
-                placeholder={t("e.g. Savings, Credit Card") ?? undefined}
+                placeholder={t("e.g. Checking, Savings, Credit Card") ?? undefined}
                 autoFocus
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="transfer-new-account-currency">{t("Account currency")}</Label>
+              <Input
+                id="transfer-new-account-currency"
+                value={newAccountCurrency}
+                onChange={(event) => setNewAccountCurrency(event.target.value.toUpperCase())}
+                placeholder={normalizedBaseCurrency}
+                list="transfer-account-currency-options"
+              />
+              <datalist id="transfer-account-currency-options">
+                {currencyOptions.map((code) => (
+                  <option key={code} value={code} />
+                ))}
+              </datalist>
+            </div>
             {accountError && <p className="text-sm text-red-500">{accountError}</p>}
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => handleAccountDialogChange(false)} disabled={isCreatingAccount}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleAccountDialogChange(false)}
+                disabled={isCreatingAccount}
+              >
                 {t("Cancel")}
               </Button>
               <Button type="submit" disabled={isCreatingAccount}>

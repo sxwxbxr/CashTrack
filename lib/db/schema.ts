@@ -25,6 +25,7 @@ export const CREATE_ACCOUNTS_TABLE = `
   CREATE TABLE IF NOT EXISTS accounts (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
+    currency TEXT NOT NULL DEFAULT 'USD',
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL
   )
@@ -38,12 +39,42 @@ export const CREATE_TRANSACTIONS_TABLE = `
     categoryId TEXT,
     categoryName TEXT NOT NULL,
     amount REAL NOT NULL,
+    accountAmount REAL NOT NULL DEFAULT 0,
+    originalAmount REAL NOT NULL DEFAULT 0,
+    currency TEXT NOT NULL DEFAULT 'USD',
+    exchangeRate REAL NOT NULL DEFAULT 1,
     account TEXT NOT NULL,
     status TEXT NOT NULL,
     type TEXT NOT NULL,
     notes TEXT,
     transferGroupId TEXT,
     transferDirection TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    FOREIGN KEY (categoryId) REFERENCES categories(id) ON UPDATE CASCADE ON DELETE SET NULL
+  )
+`
+
+export const CREATE_RECURRING_TRANSACTIONS_TABLE = `
+  CREATE TABLE IF NOT EXISTS recurring_transactions (
+    id TEXT PRIMARY KEY,
+    description TEXT NOT NULL,
+    categoryId TEXT,
+    categoryName TEXT NOT NULL,
+    amount REAL NOT NULL,
+    accountAmount REAL NOT NULL,
+    originalAmount REAL NOT NULL,
+    currency TEXT NOT NULL,
+    exchangeRate REAL NOT NULL,
+    account TEXT NOT NULL,
+    status TEXT NOT NULL,
+    type TEXT NOT NULL,
+    notes TEXT,
+    interval INTEGER NOT NULL,
+    intervalUnit TEXT NOT NULL,
+    nextRunDate TEXT NOT NULL,
+    lastRunDate TEXT,
+    isActive INTEGER NOT NULL DEFAULT 1,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL,
     FOREIGN KEY (categoryId) REFERENCES categories(id) ON UPDATE CASCADE ON DELETE SET NULL

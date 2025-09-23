@@ -9,6 +9,7 @@ const databaseReady = initDatabase()
 interface AccountRow {
   id: string
   name: string
+  currency: string
   createdAt: string
   updatedAt: string
 }
@@ -32,6 +33,7 @@ function mapRow(row: AccountRow): Account {
   return {
     id: row.id,
     name: row.name,
+    currency: row.currency,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -62,7 +64,7 @@ export async function listAccounts(filters: AccountFilters = {}, db?: Database):
     parameters.push(filters.updatedSince)
   }
 
-  let sql = "SELECT id, name, createdAt, updatedAt FROM accounts"
+  let sql = "SELECT id, name, currency, createdAt, updatedAt FROM accounts"
   if (clauses.length > 0) {
     sql += ` WHERE ${clauses.join(" AND ")}`
   }
@@ -75,7 +77,7 @@ export async function listAccounts(filters: AccountFilters = {}, db?: Database):
 export async function getAccountById(id: string, db?: Database): Promise<Account | null> {
   const connection = await resolveDatabase(db)
   const row = connection
-    .prepare("SELECT id, name, createdAt, updatedAt FROM accounts WHERE id = ?")
+    .prepare("SELECT id, name, currency, createdAt, updatedAt FROM accounts WHERE id = ?")
     .get(id) as AccountRow | undefined
   return row ? mapRow(row) : null
 }
@@ -83,7 +85,7 @@ export async function getAccountById(id: string, db?: Database): Promise<Account
 export async function getAccountByName(name: string, db?: Database): Promise<Account | null> {
   const connection = await resolveDatabase(db)
   const row = connection
-    .prepare("SELECT id, name, createdAt, updatedAt FROM accounts WHERE name = ? COLLATE NOCASE")
+    .prepare("SELECT id, name, currency, createdAt, updatedAt FROM accounts WHERE name = ? COLLATE NOCASE")
     .get(name) as AccountRow | undefined
   return row ? mapRow(row) : null
 }
@@ -91,10 +93,12 @@ export async function getAccountByName(name: string, db?: Database): Promise<Acc
 export interface CreateAccountRecord {
   id: string
   name: string
+  currency: string
 }
 
 export interface UpdateAccountRecord {
   name?: string
+  currency?: string
 }
 
 export async function insertAccount(record: CreateAccountRecord, db?: Database): Promise<Account> {
@@ -107,7 +111,9 @@ export async function insertAccount(record: CreateAccountRecord, db?: Database):
   }
 
   connection
-    .prepare("INSERT INTO accounts (id, name, createdAt, updatedAt) VALUES (@id, @name, @createdAt, @updatedAt)")
+    .prepare(
+      "INSERT INTO accounts (id, name, currency, createdAt, updatedAt) VALUES (@id, @name, @currency, @createdAt, @updatedAt)",
+    )
     .run(row)
 
   recordSyncLog(connection, "account", row.id, row.updatedAt)
@@ -124,11 +130,14 @@ export async function updateAccount(id: string, updates: UpdateAccountRecord, db
   const updatedRow: AccountRow = {
     ...existing,
     ...updates,
+    currency: updates.currency ?? existing.currency,
     updatedAt: new Date().toISOString(),
   }
 
   connection
-    .prepare("UPDATE accounts SET name = @name, updatedAt = @updatedAt WHERE id = @id")
+    .prepare(
+      "UPDATE accounts SET name = @name, currency = @currency, updatedAt = @updatedAt WHERE id = @id",
+    )
     .run(updatedRow)
 
   recordSyncLog(connection, "account", updatedRow.id, updatedRow.updatedAt)
@@ -153,21 +162,22 @@ export async function bulkUpsertAccounts(records: CreateAccountRecord[], db?: Da
 
   const connection = await resolveDatabase(db)
   const statement = connection.prepare(
-    `INSERT INTO accounts (id, name, createdAt, updatedAt)
-     VALUES (@id, @name, @createdAt, @updatedAt)
+    `INSERT INTO accounts (id, name, currency, createdAt, updatedAt)
+     VALUES (@id, @name, @currency, @createdAt, @updatedAt)
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
+       currency = excluded.currency,
        updatedAt = excluded.updatedAt`,
   )
 
   const results: Account[] = []
   for (const record of records) {
     const timestamp = new Date().toISOString()
-    const row: AccountRow = {
-      ...record,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    }
+      const row: AccountRow = {
+        ...record,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }
     statement.run(row)
     recordSyncLog(connection, "account", row.id, row.updatedAt)
     results.push(mapRow(row))

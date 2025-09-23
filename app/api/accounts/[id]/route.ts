@@ -6,7 +6,8 @@ import { AuthenticationError, PasswordChangeRequiredError, requireSession } from
 import { recordUserAction } from "@/lib/activity/service"
 
 const updateSchema = z.object({
-  name: z.string().min(1, "Account name is required").max(120),
+  name: z.string().min(1, "Account name is required").max(120).optional(),
+  currency: z.string().optional(),
 })
 
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
@@ -19,8 +20,11 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
     }
 
-    const account = await updateAccount(params.id, { name: parsed.data.name })
-    await recordUserAction(session.user, "account.update", "account", account.id, { account: account.name })
+    const account = await updateAccount(params.id, parsed.data)
+    await recordUserAction(session.user, "account.update", "account", account.id, {
+      account: account.name,
+      currency: account.currency,
+    })
     return NextResponse.json({ account })
   } catch (error) {
     if (error instanceof AuthenticationError) {

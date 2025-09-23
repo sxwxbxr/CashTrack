@@ -13,6 +13,20 @@ export interface AppSettings {
   lastBackupAt: string | null
   /** Timestamp of the most recent successful pull/push sync */
   lastSuccessfulSyncAt: string | null
+  /** Preferred base currency used for reports and conversions */
+  baseCurrency: string
+  /** Preferred display format for dates */
+  dateFormat: string
+  /** Whether conversion rates should be handled manually or automatically */
+  currencyConversionMode: CurrencyConversionMode
+  /** Whether the household allows live exchange rate updates */
+  allowCurrencyRateUpdates: boolean
+  /** Cached exchange rates keyed by currency code */
+  currencyRates: Record<string, number>
+  /** Timestamp of the most recent exchange rate refresh */
+  currencyRatesUpdatedAt: string | null
+  /** Known currencies referenced by accounts or transactions */
+  knownCurrencies: string[]
 }
 
 export interface AppSettingsPayload extends AppSettings {
@@ -27,4 +41,13 @@ export type UpdateSettingsInput = Partial<{
   backupRetentionDays: number
   lastBackupAt: string | null
   lastSuccessfulSyncAt: string | null
+  baseCurrency: string
+  dateFormat: string
+  currencyConversionMode: CurrencyConversionMode
+  allowCurrencyRateUpdates: boolean
+  currencyRates: Record<string, number>
+  currencyRatesUpdatedAt: string | null
+  knownCurrencies: string[]
 }>
+
+export type CurrencyConversionMode = "manual" | "automatic"

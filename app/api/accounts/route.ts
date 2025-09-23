@@ -7,13 +7,27 @@ import { recordUserAction } from "@/lib/activity/service"
 
 const createSchema = z.object({
   name: z.string().min(1, "Account name is required").max(120),
+  currency: z.string().optional(),
 })
 
 export async function GET() {
   try {
     await requireSession()
     const accounts = await listAccountsWithBalances()
-    return NextResponse.json({ accounts })
+    return NextResponse.json({
+      accounts: accounts.map((account) => ({
+        id: account.id,
+        name: account.name,
+        currency: account.currency,
+        balance: account.balance,
+        inflow: account.inflow,
+        outflow: account.outflow,
+        transactions: account.transactions,
+        balanceInBase: account.balanceInBase,
+        inflowInBase: account.inflowInBase,
+        outflowInBase: account.outflowInBase,
+      })),
+    })
   } catch (error) {
     if (error instanceof AuthenticationError) {
       return NextResponse.json({ error: error.message }, { status: 401 })
@@ -35,7 +49,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
     }
 
-    const account = await createAccount({ name: parsed.data.name })
+    const account = await createAccount({ name: parsed.data.name, currency: parsed.data.currency })
     await recordUserAction(session.user, "account.create", "account", account.id, { account: account.name })
     return NextResponse.json({ account }, { status: 201 })
   } catch (error) {
