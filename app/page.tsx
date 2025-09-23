@@ -10,20 +10,7 @@ import { Plus, TrendingUp, TrendingDown, DollarSign, CreditCard, AlertTriangle }
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { getDashboardAnalytics } from "@/lib/transactions/analytics"
 import { getTranslator, type Translator } from "@/lib/i18n/server"
-
-const currencyFormatter = new Intl.NumberFormat(undefined, {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 2,
-})
-
-function formatCurrency(value: number): string {
-  return currencyFormatter.format(value)
-}
-
-function formatAbsoluteCurrency(value: number): string {
-  return currencyFormatter.format(Math.abs(value))
-}
+import { getAppSettings } from "@/lib/settings/service"
 
 function formatChangeText(t: Translator, value: number | null): string {
   if (value === null || Number.isNaN(value)) {
@@ -44,6 +31,15 @@ function formatRelativeDate(date: string): string {
 
 export default async function DashboardPage() {
   const analytics = await getDashboardAnalytics()
+  const settings = await getAppSettings()
+  const currencyFormatter = new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: settings.currency,
+    minimumFractionDigits: 2,
+  })
+
+  const formatCurrency = (value: number): string => currencyFormatter.format(value)
+  const formatAbsoluteCurrency = (value: number): string => currencyFormatter.format(Math.abs(value))
   const t = getTranslator()
 
   const incomeChangeText = formatChangeText(t, analytics.incomeChangePercent)

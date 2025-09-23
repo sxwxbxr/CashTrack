@@ -1,29 +1,30 @@
 "use client"
 
+import { useMemo } from "react"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts"
 
 import { useTranslations } from "@/components/language-provider"
+import { useAppSettings } from "@/components/settings-provider"
+import { DEFAULT_CHART_COLORS } from "@/lib/colors"
 
-const COLOR_PALETTE = [
-  "hsl(var(--chart-1))",
-  "hsl(var(--chart-2))",
-  "hsl(var(--chart-3))",
-  "hsl(var(--chart-4))",
-  "hsl(var(--chart-5))",
-  "hsl(var(--destructive))",
-]
+const COLOR_PALETTE = DEFAULT_CHART_COLORS
 
 interface CategoryTrendChartProps {
   data: Array<{ month: string; [key: string]: number }>
   series: Array<{ key: string; label: string }>
 }
 
-function formatCurrency(value: number) {
-  return Number(value).toLocaleString(undefined, { style: "currency", currency: "USD" })
-}
-
 export function CategoryTrendChart({ data, series }: CategoryTrendChartProps) {
   const { t } = useTranslations()
+  const { settings } = useAppSettings()
+  const currencyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: settings?.currency ?? "USD",
+      }),
+    [settings?.currency],
+  )
   const axisTickStyle = { fill: "hsl(var(--muted-foreground))", fontSize: 12 }
   if (!series.length) {
     return (
@@ -54,7 +55,7 @@ export function CategoryTrendChart({ data, series }: CategoryTrendChartProps) {
           axisLine={false}
           tickLine={false}
           tick={axisTickStyle}
-          tickFormatter={(value) => formatCurrency(Number(value))}
+          tickFormatter={(value) => currencyFormatter.format(Number(value))}
         />
         <Tooltip
           content={({ active, payload, label }) => {
@@ -68,7 +69,7 @@ export function CategoryTrendChart({ data, series }: CategoryTrendChartProps) {
                         <span className="text-sm" style={{ color: entry.color }}>
                           {`${entry.name}:`}
                         </span>
-                        <span className="font-bold">{formatCurrency(Number(entry.value ?? 0))}</span>
+                        <span className="font-bold">{currencyFormatter.format(Number(entry.value ?? 0))}</span>
                       </div>
                     ))}
                   </div>
@@ -84,10 +85,15 @@ export function CategoryTrendChart({ data, series }: CategoryTrendChartProps) {
             key={item.key}
             type="monotone"
             dataKey={item.key}
-            stroke={COLOR_PALETTE[index % COLOR_PALETTE.length]}
+            stroke={item.color ?? COLOR_PALETTE[index % COLOR_PALETTE.length]}
             strokeWidth={2}
             name={item.label}
-            dot={{ r: 3 }}
+            dot={{
+              r: 3,
+              stroke: item.color ?? COLOR_PALETTE[index % COLOR_PALETTE.length],
+              strokeWidth: 2,
+              fill: item.color ?? COLOR_PALETTE[index % COLOR_PALETTE.length],
+            }}
             isAnimationActive={false}
           />
         ))}

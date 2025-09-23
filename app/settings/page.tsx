@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTheme } from "next-themes"
 import { formatDistanceToNow } from "date-fns"
 import { toast } from "sonner"
@@ -15,9 +15,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
-import type { AppSettingsPayload, BackupFrequency } from "@/lib/settings/types"
+import { useAppSettings } from "@/components/settings-provider"
+import {
+  DATE_FORMATS,
+  type AppSettingsPayload,
+  type BackupFrequency,
+  type CurrencyCode,
+  type DateFormat,
+} from "@/lib/settings/types"
 import type { SessionUser } from "@/lib/auth/session"
 import { useTranslations } from "@/components/language-provider"
+import { formatDateWithPattern } from "@/lib/formatting/dates"
 
 interface SettingsResponse {
   settings: AppSettingsPayload
@@ -57,14 +65,28 @@ interface ActivityResponse {
   error?: unknown
 }
 
-const activityCurrencyFormatter = new Intl.NumberFormat(undefined, {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 2,
-})
+const CURRENCY_OPTIONS: Array<{ value: CurrencyCode; label: string }> = [
+  { value: "USD", label: "US Dollar (USD)" },
+  { value: "EUR", label: "Euro (EUR)" },
+  { value: "GBP", label: "British Pound (GBP)" },
+  { value: "CAD", label: "Canadian Dollar (CAD)" },
+  { value: "AUD", label: "Australian Dollar (AUD)" },
+  { value: "JPY", label: "Japanese Yen (JPY)" },
+  { value: "CHF", label: "Swiss Franc (CHF)" },
+  { value: "CNY", label: "Chinese Yuan (CNY)" },
+  { value: "INR", label: "Indian Rupee (INR)" },
+]
+
+const DATE_FORMAT_OPTIONS: Array<{ value: DateFormat; label: string }> = DATE_FORMATS.map((format) => ({
+  value: format,
+  label: format,
+}))
+
+const DATE_PREVIEW_SAMPLE = "2024-07-04"
 
 export default function SettingsPage() {
-  const { t } = useTranslations()
+  const { t, language } = useTranslations()
+  const { settings: globalSettings, setSettings: setGlobalSettings } = useAppSettings()
   const describeRelativeTime = useCallback(
     (iso: string | null): string => {
       if (!iso) return t("Never")
@@ -99,6 +121,56 @@ export default function SettingsPage() {
     },
     [t],
   )
+  const [settings, setSettings] = useState<AppSettingsPayload | null>(globalSettings ?? null)
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [passwordLoading, setPasswordLoading] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [themeReady, setThemeReady] = useState(false)
+  const { resolvedTheme, setTheme } = useTheme()
+  const [householdUsers, setHouseholdUsers] = useState<HouseholdUser[]>([])
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [usersError, setUsersError] = useState<string | null>(null)
+  const [newUserName, setNewUserName] = useState("")
+  const [newUserPassword, setNewUserPassword] = useState("")
+  const [newUserMustReset, setNewUserMustReset] = useState(true)
+  const [newUserError, setNewUserError] = useState<string | null>(null)
+  const [creatingUser, setCreatingUser] = useState(false)
+  const [resettingUsers, setResettingUsers] = useState<Set<string>>(() => new Set())
+  const [deletingUsers, setDeletingUsers] = useState<Set<string>>(() => new Set())
+  const [activity, setActivity] = useState<HouseholdActivity[]>([])
+  const [activityLoading, setActivityLoading] = useState(false)
+  const [activityError, setActivityError] = useState<string | null>(null)
+  const isHouseholdAdmin = sessionUser?.username === "household"
+
+  const currencyCode = settings?.currency ?? "USD"
+  const activityCurrencyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: currencyCode,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
+    [currencyCode],
+  )
+
+  const formatActivityAmount = useCallback(
+    (value: number) => activityCurrencyFormatter.format(value),
+    [activityCurrencyFormatter],
+  )
+
+  const currencySelectOptions = useMemo(() => {
+    const currency = settings?.currency
+    if (!currency) {
+      return CURRENCY_OPTIONS
+    }
+    return CURRENCY_OPTIONS.some((option) => option.value === currency)
+      ? CURRENCY_OPTIONS
+      : [{ value: currency, label: currency }, ...CURRENCY_OPTIONS]
+  }, [settings?.currency])
+
   const summarizeActivityDetails = useCallback(
     (details: Record<string, unknown> | null): string[] => {
       if (!details) return []
@@ -108,7 +180,7 @@ export default function SettingsPage() {
       if (typeof details.amount === "number") {
         items.push(
           t("Amount: {{value}}", {
-            values: { value: activityCurrencyFormatter.format(details.amount) },
+            values: { value: formatActivityAmount(details.amount) },
           }),
         )
       }
@@ -142,28 +214,8 @@ export default function SettingsPage() {
 
       return items.slice(0, 3)
     },
-    [t],
+    [t, formatActivityAmount],
   )
-  const [settings, setSettings] = useState<AppSettingsPayload | null>(null)
-  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [passwordLoading, setPasswordLoading] = useState(false)
-  const [currentPassword, setCurrentPassword] = useState("")
-  const [newPassword, setNewPassword] = useState("")
-  const [themeReady, setThemeReady] = useState(false)
-  const { resolvedTheme, setTheme } = useTheme()
-  const [householdUsers, setHouseholdUsers] = useState<HouseholdUser[]>([])
-  const [usersLoading, setUsersLoading] = useState(false)
-  const [usersError, setUsersError] = useState<string | null>(null)
-  const [newUserName, setNewUserName] = useState("")
-  const [newUserPassword, setNewUserPassword] = useState("")
-  const [newUserMustReset, setNewUserMustReset] = useState(true)
-  const [newUserError, setNewUserError] = useState<string | null>(null)
-  const [creatingUser, setCreatingUser] = useState(false)
-  const [activity, setActivity] = useState<HouseholdActivity[]>([])
-  const [activityLoading, setActivityLoading] = useState(false)
-  const [activityError, setActivityError] = useState<string | null>(null)
-  const isHouseholdAdmin = sessionUser?.username === "household"
 
   useEffect(() => {
     let cancelled = false
@@ -179,6 +231,7 @@ export default function SettingsPage() {
           if (settingsRes.ok) {
             const data = (await settingsRes.json()) as SettingsResponse
             setSettings(data.settings)
+            setGlobalSettings(data.settings)
           } else {
             toast.error(t("Unable to load settings"))
           }
@@ -204,7 +257,7 @@ export default function SettingsPage() {
     return () => {
       cancelled = true
     }
-  }, [t])
+  }, [t, setGlobalSettings])
 
   const fetchHouseholdUsers = useCallback(async () => {
     if (!isHouseholdAdmin) {
@@ -287,6 +340,7 @@ export default function SettingsPage() {
       }
       const data = (await response.json()) as SettingsResponse
       setSettings(data.settings)
+      setGlobalSettings(data.settings)
       toast.success(t("Settings saved"))
     } catch (error) {
       toast.error(t("Unable to save settings"), {
@@ -347,6 +401,112 @@ export default function SettingsPage() {
     }
   }
 
+  const handleUpdateHouseholdUserPasswordRequirement = async (user: HouseholdUser, mustChange: boolean) => {
+    if (!isHouseholdAdmin) {
+      return
+    }
+
+    setResettingUsers((prev) => {
+      const next = new Set(prev)
+      next.add(user.id)
+      return next
+    })
+
+    try {
+      const response = await fetch(`/api/users/${encodeURIComponent(user.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mustChangePassword: mustChange }),
+      })
+
+      const body = (await response.json().catch(() => ({}))) as { user?: HouseholdUser; error?: unknown }
+      if (!response.ok) {
+        const message = typeof body.error === "string" ? body.error : t("Unable to update account")
+        throw new Error(message)
+      }
+
+      setUsersError(null)
+      const username = body.user?.username ?? user.username
+      if (mustChange) {
+        toast.success(t("Password reset required"), {
+          description: t("{{username}} must update their password on next sign in.", {
+            values: { username },
+          }),
+        })
+      } else {
+        toast.success(t("Password reset cleared"), {
+          description: t("{{username}} no longer has a pending password reset.", {
+            values: { username },
+          }),
+        })
+      }
+
+      await fetchHouseholdUsers()
+      await fetchHouseholdActivity()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("Unable to update account")
+      setUsersError(message)
+      toast.error(t("Unable to update account"), { description: message })
+    } finally {
+      setResettingUsers((prev) => {
+        const next = new Set(prev)
+        next.delete(user.id)
+        return next
+      })
+    }
+  }
+
+  const handleDeleteHouseholdUser = async (user: HouseholdUser) => {
+    if (!isHouseholdAdmin || user.username === "household") {
+      return
+    }
+
+    let confirmed = true
+    if (typeof window !== "undefined") {
+      confirmed = window.confirm(
+        t("Remove {{username}} from the household?", { values: { username: user.username } }),
+      )
+    }
+    if (!confirmed) {
+      return
+    }
+
+    setDeletingUsers((prev) => {
+      const next = new Set(prev)
+      next.add(user.id)
+      return next
+    })
+
+    try {
+      const response = await fetch(`/api/users/${encodeURIComponent(user.id)}`, {
+        method: "DELETE",
+      })
+      const body = (await response.json().catch(() => ({}))) as { user?: HouseholdUser; error?: unknown }
+      if (!response.ok) {
+        const message = typeof body.error === "string" ? body.error : t("Unable to remove account")
+        throw new Error(message)
+      }
+
+      setUsersError(null)
+      const username = body.user?.username ?? user.username
+      toast.success(t("Account removed"), {
+        description: t("{{username}} can no longer sign in.", { values: { username } }),
+      })
+      await fetchHouseholdUsers()
+      await fetchHouseholdActivity()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("Unable to remove account")
+      setUsersError(message)
+      toast.error(t("Unable to remove account"), { description: message })
+    } finally {
+      setDeletingUsers((prev) => {
+        const next = new Set(prev)
+        next.delete(user.id)
+        return next
+      })
+    }
+  }
+
   const handleExport = async () => {
     try {
       const response = await fetch("/api/sync/export", { cache: "no-store" })
@@ -385,6 +545,7 @@ export default function SettingsPage() {
       toast.success(t("Backup restored"))
       event.target.value = ""
       setSettings(data.settings)
+      setGlobalSettings(data.settings)
     } catch (error) {
       toast.error(t("Import failed"), { description: error instanceof Error ? error.message : undefined })
     }
@@ -435,6 +596,7 @@ export default function SettingsPage() {
     )
   }
 
+  const dateFormatPreview = formatDateWithPattern(DATE_PREVIEW_SAMPLE, settings.dateFormat, language)
   const backupFrequency: BackupFrequency = settings.autoBackupFrequency
   const canToggleTheme = themeReady && typeof resolvedTheme === "string"
 
@@ -466,6 +628,68 @@ export default function SettingsPage() {
               }}
               aria-label={t("Toggle dark mode")}
             />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("Regional Preferences")}</CardTitle>
+            <CardDescription>
+              {t("Choose how CashTrack formats currency values and calendar dates.")}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid gap-6 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">{t("Currency")}</Label>
+                <Select
+                  value={settings.currency}
+                  onValueChange={(value) => {
+                    const nextCurrency = value as CurrencyCode
+                    mutateSettings({ currency: nextCurrency })
+                    updateSettings({ currency: nextCurrency })
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {currencySelectOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-sm text-muted-foreground">
+                  {t("All balances and reports use {{code}}.", { values: { code: settings.currency } })}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">{t("Date format")}</Label>
+                <Select
+                  value={settings.dateFormat}
+                  onValueChange={(value) => {
+                    const nextFormat = value as DateFormat
+                    mutateSettings({ dateFormat: nextFormat })
+                    updateSettings({ dateFormat: nextFormat })
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DATE_FORMAT_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label} — {formatDateWithPattern(DATE_PREVIEW_SAMPLE, option.value, language)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-sm text-muted-foreground">
+                  {t("Example: {{date}}", { values: { date: dateFormatPreview } })}
+                </p>
+              </div>
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -611,17 +835,54 @@ export default function SettingsPage() {
                       const badgeVariant = user.mustChangePassword ? "outline" : "secondary"
                       const badgeText = user.mustChangePassword ? t("Password reset pending") : t("Active")
                       const entityLabel = user.username === "household" ? t("Shared") : undefined
+                      const isResetting = resettingUsers.has(user.id)
+                      const isDeleting = deletingUsers.has(user.id)
+
                       return (
-                        <div key={user.id} className="flex flex-col gap-2 rounded-md border bg-card p-3 md:flex-row md:items-center md:justify-between">
-                          <div>
-                            <p className="font-medium">{user.username}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {t("Updated {{time}}", { values: { time: describeRelativeTime(user.updatedAt) } })}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {entityLabel ? <Badge variant="secondary">{entityLabel}</Badge> : null}
-                            <Badge variant={badgeVariant}>{badgeText}</Badge>
+                        <div key={user.id} className="space-y-3 rounded-md border bg-card p-3">
+                          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                            <div>
+                              <p className="font-medium">{user.username}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {t("Updated {{time}}", { values: { time: describeRelativeTime(user.updatedAt) } })}
+                              </p>
+                            </div>
+                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-end md:gap-3">
+                              <div className="flex items-center gap-2">
+                                {entityLabel ? <Badge variant="secondary">{entityLabel}</Badge> : null}
+                                <Badge variant={badgeVariant}>{badgeText}</Badge>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    handleUpdateHouseholdUserPasswordRequirement(user, !user.mustChangePassword)
+                                  }
+                                  disabled={isResetting || isDeleting}
+                                >
+                                  {isResetting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                  {isResetting
+                                    ? t("Updating…")
+                                    : user.mustChangePassword
+                                      ? t("Mark password confirmed")
+                                      : t("Require password reset")}
+                                </Button>
+                                {user.username !== "household" ? (
+                                  <Button
+                                    type="button"
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => handleDeleteHouseholdUser(user)}
+                                    disabled={isDeleting || isResetting}
+                                  >
+                                    {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                    {isDeleting ? t("Removing…") : t("Remove")}
+                                  </Button>
+                                ) : null}
+                              </div>
+                            </div>
                           </div>
                         </div>
                       )

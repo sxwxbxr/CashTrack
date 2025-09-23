@@ -1,4 +1,4 @@
-export type TransactionType = "income" | "expense"
+export type TransactionType = "income" | "expense" | "transfer"
 
 export type TransactionStatus = "pending" | "completed" | "cleared"
 
@@ -13,6 +13,8 @@ export interface Transaction {
   status: TransactionStatus
   type: TransactionType
   notes: string | null
+  transferGroupId: string | null
+  transferDirection: "in" | "out" | null
   createdAt: string
   updatedAt: string
 }
@@ -77,6 +79,16 @@ export interface ParsedCsvTransaction {
   account?: string
   status?: TransactionStatus
   type?: TransactionType
+  notes?: string | null
+}
+
+export interface CreateTransferInput {
+  date: string
+  description: string
+  amount: number
+  fromAccount: string
+  toAccount: string
+  status: TransactionStatus
   notes?: string | null
 }
 

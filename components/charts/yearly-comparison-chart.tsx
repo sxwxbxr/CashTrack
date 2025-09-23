@@ -1,8 +1,14 @@
 "use client"
 
+import { useMemo } from "react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts"
 
 import { useTranslations } from "@/components/language-provider"
+import { useAppSettings } from "@/components/settings-provider"
+import { DEFAULT_CHART_COLORS } from "@/lib/colors"
+
+const CURRENT_YEAR_COLOR = DEFAULT_CHART_COLORS[0]
+const PREVIOUS_YEAR_COLOR = DEFAULT_CHART_COLORS[2]
 
 const DEFAULT_DATA = [
   { month: "Jan", previous: 2400, current: 2200 },
@@ -25,16 +31,21 @@ interface YearlyComparisonChartProps {
   previousLabel?: string
 }
 
-function formatCurrency(value: number) {
-  return Number(value).toLocaleString(undefined, { style: "currency", currency: "USD" })
-}
-
 export function YearlyComparisonChart({
   data,
   currentLabel = "Current",
   previousLabel = "Previous",
 }: YearlyComparisonChartProps) {
   const { t } = useTranslations()
+  const { settings } = useAppSettings()
+  const currencyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: settings?.currency ?? "USD",
+      }),
+    [settings?.currency],
+  )
   const usingFallback = !data
   const chartData = usingFallback ? DEFAULT_DATA : data
   const hasData = chartData.some((point) => point.current !== 0 || point.previous !== 0)
@@ -59,7 +70,7 @@ export function YearlyComparisonChart({
           axisLine={false}
           tickLine={false}
           tick={axisTickStyle}
-          tickFormatter={(value) => formatCurrency(Number(value))}
+          tickFormatter={(value) => currencyFormatter.format(Number(value))}
         />
         <Tooltip
           content={({ active, payload, label }) => {
@@ -73,7 +84,7 @@ export function YearlyComparisonChart({
                         <span className="text-sm" style={{ color: entry.color }}>
                           {`${t(entry.name ?? "")}:`}
                         </span>
-                        <span className="font-bold">{formatCurrency(Number(entry.value ?? 0))}</span>
+                        <span className="font-bold">{currencyFormatter.format(Number(entry.value ?? 0))}</span>
                       </div>
                     ))}
                   </div>
@@ -84,8 +95,8 @@ export function YearlyComparisonChart({
           }}
         />
         <Legend formatter={(value: string) => <span style={{ color: "hsl(var(--muted-foreground))" }}>{t(value)}</span>} />
-        <Bar dataKey="previous" fill="hsl(var(--chart-2))" name={resolvedPreviousLabel} radius={[4, 4, 0, 0]} />
-        <Bar dataKey="current" fill="hsl(var(--chart-1))" name={resolvedCurrentLabel} radius={[4, 4, 0, 0]} />
+        <Bar dataKey="previous" fill={PREVIOUS_YEAR_COLOR} name={resolvedPreviousLabel} radius={[4, 4, 0, 0]} />
+        <Bar dataKey="current" fill={CURRENT_YEAR_COLOR} name={resolvedCurrentLabel} radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   )

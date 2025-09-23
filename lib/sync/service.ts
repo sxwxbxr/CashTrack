@@ -6,6 +6,8 @@ import { listTransactions as listTransactionRecords, getTransactionById } from "
 import type { Transaction } from "@/lib/transactions/types"
 import { listCategories as listCategoryRecords, getCategoryById } from "@/lib/categories/repository"
 import type { Category } from "@/lib/categories/types"
+import { listAccounts as listAccountRecords, getAccountById } from "@/lib/accounts/repository"
+import type { Account } from "@/lib/accounts/types"
 import { listAutomationRules as listAutomationRuleRecords, getAutomationRuleById } from "@/lib/categories/rule-repository"
 import type { AutomationRule } from "@/lib/categories/types"
 import { listSettingRows, setSettingRow, type SettingRow } from "@/lib/settings/repository"
@@ -13,6 +15,7 @@ import { listUsers, getUserById, type User } from "@/lib/users/repository"
 import { markSyncCompleted } from "@/lib/settings/service"
 import {
   automationRuleSchema,
+  accountSchema,
   backupSnapshotSchema,
   categorySchema,
   settingRowSchema,
@@ -34,6 +37,7 @@ export interface SyncResult {
   cursor: string
   transactions: Transaction[]
   categories: Category[]
+  accounts: Account[]
   rules: AutomationRule[]
   settings: Array<{ key: string; value: unknown; updatedAt: string }>
   users: User[]
@@ -58,10 +62,15 @@ async function fetchTransactionsSince(updatedSince?: string): Promise<Transactio
   return listTransactionRecords(filters, options)
 }
 
+async function fetchAccountsSince(updatedSince?: string): Promise<Account[]> {
+  return listAccountRecords(updatedSince ? { updatedSince } : {})
+}
+
 export async function pullChanges(since?: string): Promise<SyncResult> {
-  const [transactions, categories, rules, settingsRows, users] = await Promise.all([
+  const [transactions, categories, accounts, rules, settingsRows, users] = await Promise.all([
     fetchTransactionsSince(since),
     listCategoryRecords(since ? { updatedSince: since } : {}),
+    fetchAccountsSince(since),
     listAutomationRuleRecords(since ? { updatedSince: since } : {}),
     listSettingRows(since),
     listUsers(),
@@ -73,6 +82,7 @@ export async function pullChanges(since?: string): Promise<SyncResult> {
     cursor,
     transactions,
     categories,
+    accounts,
     rules,
     settings: settingsRows.map(parseSettingValue),
     users,
@@ -108,9 +118,11 @@ async function applyTransactionRecords(
        status,
        type,
        notes,
+       transferGroupId,
+       transferDirection,
        createdAt,
        updatedAt
-     ) VALUES (@id, @date, @description, @categoryId, @categoryName, @amount, @account, @status, @type, @notes, @createdAt, @updatedAt)
+      ) VALUES (@id, @date, @description, @categoryId, @categoryName, @amount, @account, @status, @type, @notes, @transferGroupId, @transferDirection, @createdAt, @updatedAt)
      ON CONFLICT(id) DO UPDATE SET
        date = excluded.date,
        description = excluded.description,
@@ -121,6 +133,8 @@ async function applyTransactionRecords(
        status = excluded.status,
        type = excluded.type,
        notes = excluded.notes,
+       transferGroupId = excluded.transferGroupId,
+       transferDirection = excluded.transferDirection,
        updatedAt = excluded.updatedAt`
   )
 
@@ -144,9 +158,54 @@ async function applyTransactionRecords(
       ...parsed,
       categoryId: parsed.categoryId ?? null,
       notes: parsed.notes ?? null,
+      transferGroupId: parsed.transferGroupId ?? null,
+      transferDirection: parsed.transferDirection ?? null,
     })
     recordSyncLog(db, "transaction", parsed.id, parsed.updatedAt)
     const final = await getTransactionById(parsed.id, db)
+    if (final) {
+      applied.push(final)
+    }
+  }
+
+  return { applied, conflicts }
+}
+
+async function applyAccountRecords(
+  db: Database,
+  records: SyncPushPayload["accounts"],
+): Promise<{ applied: Account[]; conflicts: SyncConflict[] }> {
+  if (!records?.length) {
+    return { applied: [], conflicts: [] }
+  }
+
+  const statement = db.prepare(
+    `INSERT INTO accounts (id, name, createdAt, updatedAt)
+     VALUES (@id, @name, @createdAt, @updatedAt)
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name,
+       updatedAt = excluded.updatedAt`,
+  )
+
+  const applied: Account[] = []
+  const conflicts: SyncConflict[] = []
+
+  for (const record of records) {
+    const parsed = accountSchema.parse(record)
+    const existingUpdatedAt = loadExistingTimestamp(db, "accounts", parsed.id)
+    if (existingUpdatedAt && compareTimestamps(existingUpdatedAt, parsed.updatedAt) === 1) {
+      conflicts.push({
+        entityType: "account",
+        entityId: parsed.id,
+        localUpdatedAt: existingUpdatedAt,
+        incomingUpdatedAt: parsed.updatedAt,
+      })
+      continue
+    }
+
+    statement.run(parsed)
+    recordSyncLog(db, "account", parsed.id, parsed.updatedAt)
+    const final = await getAccountById(parsed.id, db)
     if (final) {
       applied.push(final)
     }
@@ -347,9 +406,10 @@ export async function applySyncPayload(payload: SyncPushPayload) {
   const conflicts: SyncConflict[] = []
 
   await withTransaction(async (db) => {
-    const [transactionResult, categoryResult, ruleResult, settingResult, userResult] = await Promise.all([
+    const [transactionResult, categoryResult, accountResult, ruleResult, settingResult, userResult] = await Promise.all([
       applyTransactionRecords(db, validated.transactions),
       applyCategoryRecords(db, validated.categories),
+      applyAccountRecords(db, validated.accounts),
       applyAutomationRuleRecords(db, validated.rules),
       applySettingRecords(db, validated.settings),
       applyUserRecords(db, validated.users),
@@ -358,6 +418,7 @@ export async function applySyncPayload(payload: SyncPushPayload) {
     conflicts.push(
       ...transactionResult.conflicts,
       ...categoryResult.conflicts,
+      ...accountResult.conflicts,
       ...ruleResult.conflicts,
       ...settingResult.conflicts,
       ...userResult.conflicts,
@@ -367,6 +428,7 @@ export async function applySyncPayload(payload: SyncPushPayload) {
       cursor: new Date().toISOString(),
       transactions: transactionResult.applied,
       categories: categoryResult.applied,
+      accounts: accountResult.applied,
       rules: ruleResult.applied,
       settings: settingResult.applied,
       users: userResult.applied,
@@ -385,9 +447,10 @@ export async function applySyncPayload(payload: SyncPushPayload) {
 }
 
 export async function exportSnapshot(): Promise<BackupSnapshot> {
-  const [transactions, categories, rules, settingsRows, users] = await Promise.all([
+  const [transactions, categories, accounts, rules, settingsRows, users] = await Promise.all([
     listTransactionRecords({}, { orderBy: "updatedAt", orderDirection: "asc" }),
     listCategoryRecords({}, undefined),
+    listAccountRecords({}, undefined),
     listAutomationRuleRecords({}, undefined),
     listSettingRows(),
     listUsers(),
@@ -398,6 +461,7 @@ export async function exportSnapshot(): Promise<BackupSnapshot> {
     exportedAt: new Date().toISOString(),
     transactions,
     categories,
+    accounts,
     rules,
     settings: settingsRows.map(parseSettingValue),
     users,
@@ -411,6 +475,7 @@ export async function importSnapshot(snapshot: BackupSnapshot) {
     db.exec(
       `DELETE FROM transactions;
        DELETE FROM categories;
+       DELETE FROM accounts;
        DELETE FROM automation_rules;
        DELETE FROM settings;
        DELETE FROM users;
@@ -418,6 +483,7 @@ export async function importSnapshot(snapshot: BackupSnapshot) {
     )
 
     await applyCategoryRecords(db, validated.categories)
+    await applyAccountRecords(db, validated.accounts)
     await applyTransactionRecords(db, validated.transactions)
     await applyAutomationRuleRecords(db, validated.rules)
     await applySettingRecords(db, validated.settings)

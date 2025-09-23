@@ -1,19 +1,27 @@
 "use client"
 
+import { useMemo } from "react"
 import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts"
 
 import { useTranslations } from "@/components/language-provider"
+import { useAppSettings } from "@/components/settings-provider"
+import { DEFAULT_CHART_COLORS } from "@/lib/colors"
 
 interface SpendingTrendChartProps {
   data: Array<{ month: string; income: number; expenses: number }>
 }
 
-function formatCurrency(value: number) {
-  return Number(value).toLocaleString(undefined, { style: "currency", currency: "USD" })
-}
-
 export function SpendingTrendChart({ data }: SpendingTrendChartProps) {
   const { t } = useTranslations()
+  const { settings } = useAppSettings()
+  const currencyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: settings?.currency ?? "USD",
+      }),
+    [settings?.currency],
+  )
   const hasData = data.some((point) => point.income !== 0 || point.expenses !== 0)
   const axisTickStyle = { fill: "hsl(var(--muted-foreground))", fontSize: 12 }
 
@@ -30,12 +38,12 @@ export function SpendingTrendChart({ data }: SpendingTrendChartProps) {
       <AreaChart data={data}>
         <defs>
           <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.8} />
-            <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0.1} />
+            <stop offset="5%" stopColor={DEFAULT_CHART_COLORS[0]} stopOpacity={0.8} />
+            <stop offset="95%" stopColor={DEFAULT_CHART_COLORS[0]} stopOpacity={0.1} />
           </linearGradient>
           <linearGradient id="colorExpenses" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="hsl(var(--chart-2))" stopOpacity={0.8} />
-            <stop offset="95%" stopColor="hsl(var(--chart-2))" stopOpacity={0.1} />
+            <stop offset="5%" stopColor={DEFAULT_CHART_COLORS[1]} stopOpacity={0.8} />
+            <stop offset="95%" stopColor={DEFAULT_CHART_COLORS[1]} stopOpacity={0.1} />
           </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -44,7 +52,7 @@ export function SpendingTrendChart({ data }: SpendingTrendChartProps) {
           axisLine={false}
           tickLine={false}
           tick={axisTickStyle}
-          tickFormatter={(value) => formatCurrency(Number(value))}
+          tickFormatter={(value) => currencyFormatter.format(Number(value))}
         />
         <Tooltip
           content={({ active, payload, label }) => {
@@ -60,10 +68,10 @@ export function SpendingTrendChart({ data }: SpendingTrendChartProps) {
                 <div className="flex flex-col space-y-1">
                   <span className="text-[0.70rem] uppercase text-muted-foreground">{label}</span>
                   <span className="font-medium text-muted-foreground">
-                    {t("Income:")} {formatCurrency(Number(incomePoint?.value ?? 0))}
+                    {t("Income:")} {currencyFormatter.format(Number(incomePoint?.value ?? 0))}
                   </span>
                   <span className="font-medium text-muted-foreground">
-                    {t("Expenses:")} {formatCurrency(Number(expensePoint?.value ?? 0))}
+                    {t("Expenses:")} {currencyFormatter.format(Number(expensePoint?.value ?? 0))}
                   </span>
                 </div>
               </div>
@@ -73,7 +81,7 @@ export function SpendingTrendChart({ data }: SpendingTrendChartProps) {
         <Area
           type="monotone"
           dataKey="income"
-          stroke="hsl(var(--chart-1))"
+          stroke={DEFAULT_CHART_COLORS[0]}
           fillOpacity={1}
           fill="url(#colorIncome)"
           strokeWidth={2}
@@ -81,7 +89,7 @@ export function SpendingTrendChart({ data }: SpendingTrendChartProps) {
         <Area
           type="monotone"
           dataKey="expenses"
-          stroke="hsl(var(--chart-2))"
+          stroke={DEFAULT_CHART_COLORS[1]}
           fillOpacity={1}
           fill="url(#colorExpenses)"
           strokeWidth={2}
