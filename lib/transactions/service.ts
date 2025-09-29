@@ -9,13 +9,7 @@ import { listAutomationRules } from "@/lib/categories/rule-repository"
 import { getCategoryById, getCategoryByName, listCategories } from "@/lib/categories/repository"
 import { ensureCurrencyTracked, ensureFreshCurrencyRates, getAppSettings } from "@/lib/settings/service"
 import { convertCurrency, ensureKnownCurrencies, normalizeCurrencyCode, roundAmount } from "@/lib/currency/service"
-import {
-  VALID_STATUSES,
-  VALID_TYPES,
-  normalizeDate,
-  parseCsvTransactions as parseCsvTransactionsPure,
-  parseCsv as parseCsvPure,
-} from "@/lib/transactions/import-utils"
+import { VALID_STATUSES, VALID_TYPES, normalizeDate } from "@/lib/transactions/import-utils"
 import {
   bulkInsertTransactions,
   calculateTransactionTotals,
@@ -858,7 +852,7 @@ export async function deleteRecurringTransaction(id: string): Promise<void> {
   }
 }
 
-export { parseCsvTransactionsPure as parseCsvTransactions, parseCsvPure as parseCsv } from "@/lib/transactions/import-utils"
+export { parseCsvTransactions, parseCsv } from "@/lib/transactions/import-utils"
 
 export async function importTransactions(transactionsToImport: ParsedCsvTransaction[]) {
   if (transactionsToImport.length === 0) {
