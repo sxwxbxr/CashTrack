@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from "node:fs/promises"
+import path from "node:path"
 import pdfParse from "pdf-parse"
 
 import type { ParsedCsvTransaction, TransactionType } from "@/lib/transactions/types"
@@ -169,11 +171,39 @@ function extractAmounts(value: string): RegExpMatchArray[] {
   return Array.from(value.matchAll(AMOUNT_REGEX))
 }
 
+const PDF_DUMP_DIRECTORY = path.join(process.cwd(), "data", "import-dumps")
+const PDF_LOG_PREFIX = "[transactions/pdf-parser]"
+
+async function persistPdfTextDump(text: string, accountName?: string) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
+  const safeAccountName = accountName
+    ?.trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+  const filename = safeAccountName && safeAccountName.length > 0
+    ? `${timestamp}-${safeAccountName}.txt`
+    : `${timestamp}-statement.txt`
+  const outputPath = path.join(PDF_DUMP_DIRECTORY, filename)
+
+  try {
+    await mkdir(PDF_DUMP_DIRECTORY, { recursive: true })
+    await writeFile(outputPath, text, "utf8")
+    console.info(`${PDF_LOG_PREFIX} Wrote PDF text dump`, { path: path.relative(process.cwd(), outputPath) })
+  } catch (error) {
+    console.warn(
+      `${PDF_LOG_PREFIX} Failed to persist PDF text dump`,
+      error instanceof Error ? { error: error.message } : { error },
+    )
+  }
+}
+
 export async function parsePdfTransactions(
   buffer: Buffer,
   options: { accountName?: string } = {},
 ): Promise<{ transactions: ParsedCsvTransaction[]; errors: Array<{ line: number; message: string }> }> {
   const result = await pdfParse(buffer)
+  await persistPdfTextDump(result.text, options.accountName)
   const rawLines = result.text.split(/\r?\n/)
 
   const transactions: ParsedCsvTransaction[] = []
