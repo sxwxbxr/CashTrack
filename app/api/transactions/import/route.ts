@@ -5,6 +5,32 @@ import { parsePdfTransactions } from "@/lib/transactions/pdf-parser"
 import { recordUserAction } from "@/lib/activity/service"
 import type { ParsedCsvTransaction } from "@/lib/transactions/types"
 
+function withCors(response: NextResponse, request: NextRequest): NextResponse {
+  const origin = request.headers.get("origin")
+  if (origin) {
+    response.headers.set("Access-Control-Allow-Origin", origin)
+    response.headers.set("Access-Control-Allow-Credentials", "true")
+    response.headers.append("Vary", "Origin")
+  }
+  return response
+}
+
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+
+export async function OPTIONS(request: NextRequest) {
+  const origin = request.headers.get("origin") ?? "*"
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": request.headers.get("access-control-request-headers") ?? "*",
+      "Access-Control-Allow-Credentials": "true",
+    },
+  })
+}
+
 export async function POST(request: NextRequest) {
   try {
     const session = await requireSession()
@@ -18,7 +44,7 @@ export async function POST(request: NextRequest) {
     const accountName = typeof accountNameRaw === "string" ? accountNameRaw : undefined
 
     if (!(file instanceof Blob)) {
-      return NextResponse.json({ error: "File is required" }, { status: 400 })
+      return withCors(NextResponse.json({ error: "File is required" }, { status: 400 }), request)
     }
 
     const isPdfImport = importType === "pdf"
@@ -33,7 +59,10 @@ export async function POST(request: NextRequest) {
       errors = result.errors
     } else {
       if (typeof mappingRaw !== "string") {
-        return NextResponse.json({ error: "Column mapping is required" }, { status: 400 })
+        return withCors(
+          NextResponse.json({ error: "Column mapping is required" }, { status: 400 }),
+          request,
+        )
       }
       const mapping = JSON.parse(mappingRaw)
       const content = await file.text()
@@ -43,7 +72,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (dryRun) {
-      return NextResponse.json({ preview: transactions.slice(0, 20), total: transactions.length, errors })
+      return withCors(
+        NextResponse.json({ preview: transactions.slice(0, 20), total: transactions.length, errors }),
+        request,
+      )
     }
 
     const result = await importTransactions(transactions)
@@ -53,14 +85,14 @@ export async function POST(request: NextRequest) {
       source: isPdfImport ? "pdf" : "csv",
       errors: errors.length,
     })
-    return NextResponse.json({ ...result, errors })
+    return withCors(NextResponse.json({ ...result, errors }), request)
   } catch (error) {
     if (error instanceof AuthenticationError) {
-      return NextResponse.json({ error: error.message }, { status: 401 })
+      return withCors(NextResponse.json({ error: error.message }, { status: 401 }), request)
     }
     if (error instanceof PasswordChangeRequiredError) {
-      return NextResponse.json({ error: error.message }, { status: 403 })
+      return withCors(NextResponse.json({ error: error.message }, { status: 403 }), request)
     }
-    return NextResponse.json({ error: (error as Error).message }, { status: 400 })
+    return withCors(NextResponse.json({ error: (error as Error).message }, { status: 400 }), request)
   }
 }
