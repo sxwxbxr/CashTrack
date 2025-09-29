@@ -6,9 +6,20 @@ function normalizePdfDate(value: string): string | null {
   const trimmed = value.trim().replace(/\s+/g, " ")
   if (!trimmed) return null
 
-  const direct = new Date(trimmed)
-  if (!Number.isNaN(direct.getTime())) {
-    return direct.toISOString().slice(0, 10)
+  const dotDateMatch = trimmed.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/)
+  if (dotDateMatch) {
+    const day = Number.parseInt(dotDateMatch[1], 10)
+    const month = Number.parseInt(dotDateMatch[2], 10)
+    let year = Number.parseInt(dotDateMatch[3], 10)
+    if (dotDateMatch[3].length === 2) {
+      year = year >= 70 ? 1900 + year : 2000 + year
+    }
+    if (Number.isFinite(day) && Number.isFinite(month) && Number.isFinite(year)) {
+      const parsed = new Date(Date.UTC(year, month - 1, day))
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString().slice(0, 10)
+      }
+    }
   }
 
   const monthNameMatch = trimmed.match(/^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{2,4})$/)
@@ -70,6 +81,11 @@ function normalizePdfDate(value: string): string | null {
     }
   }
 
+  const direct = new Date(trimmed)
+  if (!Number.isNaN(direct.getTime())) {
+    return direct.toISOString().slice(0, 10)
+  }
+
   return null
 }
 
@@ -109,30 +125,26 @@ function sanitizeAmount(value: string): number {
   return negative ? -Math.abs(amount) : amount
 }
 
-function resolveTransactionAmount(amounts: number[]): number {
-  if (amounts.length === 0) {
-    throw new Error("Missing amount")
-  }
+const DATE_LINE_REGEX = /^(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})(.*)$/
+const AMOUNT_REGEX = /-?\$?\(?\d{1,3}(?:[.,']\d{3})*(?:[.,]\d{2})?\)?(?:CR|DR)?/g
 
-  if (amounts.length >= 3) {
-    const debit = amounts[0]
-    const credit = amounts[1]
-    if (Math.abs(credit) > 0) {
-      return credit
-    }
-    if (Math.abs(debit) > 0) {
-      return -Math.abs(debit)
-    }
-  }
+function toCents(value: number): number {
+  return Math.round(value * 100)
+}
 
-  if (amounts.length >= 2) {
-    const [first] = amounts
-    if (Math.abs(first) > 0) {
-      return first
-    }
+function splitCombinedAmountPair(value: string): [string, string] | null {
+  const normalized = value.replace(/\s+/g, "")
+  const compact = normalized.replace(/'/g, "")
+  const match = compact.match(/^(-?\d+(?:[.,]\d{2}))(-?\d+(?:[.,]\d{2}))$/)
+  if (!match) {
+    return null
   }
+  return [match[1], match[2]]
+}
 
-  return amounts[0]
+function extractAmounts(value: string): RegExpMatchArray[] {
+  AMOUNT_REGEX.lastIndex = 0
+  return Array.from(value.matchAll(AMOUNT_REGEX))
 }
 
 export async function parsePdfTransactions(
@@ -140,57 +152,205 @@ export async function parsePdfTransactions(
   options: { accountName?: string } = {},
 ): Promise<{ transactions: ParsedCsvTransaction[]; errors: Array<{ line: number; message: string }> }> {
   const result = await pdfParse(buffer)
-  const lines = result.text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
+  const rawLines = result.text.split(/\r?\n/)
 
   const transactions: ParsedCsvTransaction[] = []
   const errors: Array<{ line: number; message: string }> = []
   const account = options.accountName?.trim() || "Statement"
 
-  lines.forEach((line, index) => {
-    const lineNumber = index + 1
-    const match = line.match(
-      /^(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{4}[\/-]\d{1,2}[\/-]\d{1,2}|\d{1,2}\s+[A-Za-z]{3,}\s+\d{2,4})\s+(.*)$/,
-    )
-    if (!match) {
+  type PendingEntry = {
+    date: string
+    parts: string[]
+    lineNumber: number
+  }
+
+  let currentEntry: PendingEntry | null = null
+  let previousBalanceCents: number | undefined
+
+  const finalizeCurrentEntry = () => {
+    if (!currentEntry) {
       return
     }
 
-    const dateValue = normalizePdfDate(match[1])
-    if (!dateValue) {
-      errors.push({ line: lineNumber, message: `Unrecognized date: ${match[1]}` })
+    const entryText = currentEntry.parts
+      .map((part) => part.replace(/\s+/g, " ").trim())
+      .filter((part) => part.length > 0)
+      .join(" ")
+      .replace(/^\((\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\)\s*/, "")
+
+    if (!entryText) {
+      currentEntry = null
       return
     }
 
-    const remainder = match[2].trim()
-    const amountMatches = Array.from(remainder.matchAll(/-?\$?\(?\d{1,3}(?:,\d{3})*(?:\.\d{2})?\)?(?:CR|DR)?/g))
-    if (amountMatches.length === 0) {
-      errors.push({ line: lineNumber, message: "Unable to locate amount" })
-      return
+    const trailingPairRegex = /(-?\d{1,3}(?:[.,']\d{3})*(?:[.,]\d{2}))\s*(-?\d{1,3}(?:[.,']\d{3})*(?:[.,]\d{2}))\s*$/
+    const trailingPairMatch = trailingPairRegex.exec(entryText)
+
+    let amountString: string | undefined
+    let balanceString: string | undefined
+    let descriptionEndIndex = entryText.length
+
+    if (trailingPairMatch) {
+      const combinedFromBalance = splitCombinedAmountPair(trailingPairMatch[2])
+      const combinedFromAmount = splitCombinedAmountPair(trailingPairMatch[1])
+      if (combinedFromBalance) {
+        amountString = combinedFromBalance[0]
+        balanceString = combinedFromBalance[1]
+      } else if (combinedFromAmount) {
+        amountString = combinedFromAmount[0]
+        balanceString = combinedFromAmount[1]
+      } else {
+        amountString = trailingPairMatch[1]
+        balanceString = trailingPairMatch[2]
+      }
+      descriptionEndIndex = trailingPairMatch.index
+    } else {
+      const amountMatches = extractAmounts(entryText)
+      if (amountMatches.length === 0) {
+        errors.push({ line: currentEntry.lineNumber, message: "Unable to locate amount" })
+        currentEntry = null
+        return
+      }
+
+      const amountMatchIndex = amountMatches.length >= 2 ? amountMatches.length - 2 : amountMatches.length - 1
+      const amountMatch = amountMatches[amountMatchIndex]
+      amountString = amountMatch[0]
+      descriptionEndIndex = amountMatch.index ?? entryText.indexOf(amountString)
+
+      if (amountMatches.length >= 2) {
+        balanceString = amountMatches[amountMatches.length - 1][0]
+      }
     }
 
-    const firstAmount = amountMatches[0]
-    const descriptionRaw = remainder.slice(0, firstAmount.index).trim()
-    const description = descriptionRaw || "Statement entry"
+    let amountValueCents: number
+    let balanceValueCents: number | undefined
 
     try {
-      const amountValues = amountMatches.map((matchResult) => sanitizeAmount(matchResult[0]))
-      const resolvedAmount = resolveTransactionAmount(amountValues)
-      const type: TransactionType = resolvedAmount >= 0 ? "income" : "expense"
-
-      transactions.push({
-        date: dateValue,
-        description,
-        amount: Math.abs(resolvedAmount),
-        type,
-        account,
-      })
+      if (!amountString) {
+        throw new Error("Missing amount")
+      }
+      amountValueCents = toCents(sanitizeAmount(amountString))
+      if (balanceString) {
+        balanceValueCents = toCents(sanitizeAmount(balanceString))
+      }
     } catch (error) {
-      errors.push({ line: lineNumber, message: (error as Error).message })
+      errors.push({ line: currentEntry.lineNumber, message: (error as Error).message })
+      currentEntry = null
+      return
     }
+
+    let description = entryText.slice(0, descriptionEndIndex).replace(/^\(([^)]+)\)\s*/, "").trim()
+
+    if (!description || /^Saldo/i.test(description) || /^Saldovortrag/i.test(description)) {
+      if (typeof balanceValueCents === "number") {
+        previousBalanceCents = balanceValueCents
+      }
+      currentEntry = null
+      return
+    }
+
+    const startingBalanceCents = previousBalanceCents
+    let resolvedAmountCents = amountValueCents
+
+    if (typeof balanceValueCents === "number") {
+      if (typeof startingBalanceCents === "number") {
+        const deltaCents = balanceValueCents - startingBalanceCents
+        if (deltaCents !== 0) {
+          resolvedAmountCents = deltaCents
+        }
+      }
+      previousBalanceCents = balanceValueCents
+    }
+
+    if (typeof startingBalanceCents !== "number" && typeof balanceValueCents !== "number") {
+      const lowered = description.toLowerCase()
+      if (/gutschrift|eingang|zahlungseingang|erstattung/.test(lowered)) {
+        resolvedAmountCents = Math.abs(resolvedAmountCents)
+      } else {
+        resolvedAmountCents = -Math.abs(resolvedAmountCents)
+      }
+    } else if (typeof startingBalanceCents !== "number" && typeof balanceValueCents === "number") {
+      const lowered = description.toLowerCase()
+      if (/gutschrift|eingang|zahlungseingang|erstattung/.test(lowered)) {
+        resolvedAmountCents = Math.abs(resolvedAmountCents)
+      } else {
+        resolvedAmountCents = -Math.abs(resolvedAmountCents)
+      }
+    }
+
+    const resolvedAmount = resolvedAmountCents / 100
+    const type: TransactionType = resolvedAmount >= 0 ? "income" : "expense"
+
+    transactions.push({
+      date: currentEntry.date,
+      description: description || "Statement entry",
+      amount: Math.abs(resolvedAmount),
+      type,
+      account,
+    })
+
+    currentEntry = null
+  }
+
+  rawLines.forEach((rawLine, index) => {
+    const line = rawLine.trim()
+    if (!line) {
+      return
+    }
+
+    const dateMatch = line.match(DATE_LINE_REGEX)
+    if (dateMatch) {
+      const dateValue = normalizePdfDate(dateMatch[1])
+      if (!dateValue) {
+        errors.push({ line: index + 1, message: `Unrecognized date: ${dateMatch[1]}` })
+        currentEntry = null
+        return
+      }
+
+      const remainderRaw = dateMatch[2]
+      const remainderTrimmed = remainderRaw.trim()
+      const remainderFirstChar = remainderTrimmed.charAt(0)
+      const isLikelyNewEntry =
+        remainderTrimmed.length === 0 || /[A-Za-zÄÖÜäöü]/.test(remainderFirstChar)
+
+      if (!isLikelyNewEntry && currentEntry) {
+        currentEntry.parts.push(line)
+        return
+      }
+
+      finalizeCurrentEntry()
+
+      currentEntry = {
+        date: dateValue,
+        parts: [],
+        lineNumber: index + 1,
+      }
+
+      const remainder = remainderTrimmed
+      if (remainder) {
+        currentEntry.parts.push(remainder)
+      }
+
+      return
+    }
+
+    if (!currentEntry) {
+      return
+    }
+
+    if (
+      /^(Saldo|Umsatz|Kontoinhaber|Kontoauszug|IBAN|Kontoart|Raiffeisenbank|Telefon|UID\b|www\.|wil@|Herr\b|Für Sie zuständig|Privatkundenberatung|Wil SG|AN\d+|\d+\s*\/\s*\d+|Übertrag\b)/i.test(
+        line,
+      )
+    ) {
+      finalizeCurrentEntry()
+      return
+    }
+
+    currentEntry.parts.push(line)
   })
+
+  finalizeCurrentEntry()
 
   return { transactions, errors }
 }
