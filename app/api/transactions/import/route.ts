@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import { importTransactions, parseCsvTransactions } from "@/lib/transactions/service"
 import { AuthenticationError, PasswordChangeRequiredError, requireSession } from "@/lib/auth/session"
 import { parsePdfTransactions } from "@/lib/transactions/pdf-parser"
-import { recordUserAction } from "@/lib/activity/service"
+import { parseCsvTransactions } from "@/lib/transactions/import-utils"
+import type { CsvMapping } from "@/lib/transactions/import-utils"
 import type { ParsedCsvTransaction } from "@/lib/transactions/types"
 
 function withCors(response: NextResponse, request: NextRequest): NextResponse {
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
           request,
         )
       }
-      const mapping = JSON.parse(mappingRaw)
+      const mapping = JSON.parse(mappingRaw) as CsvMapping
       const content = await file.text()
       const result = parseCsvTransactions(content, mapping)
       transactions = result.transactions
@@ -78,8 +78,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const result = await importTransactions(transactions)
-    await recordUserAction(session.user, "transaction.import", "transaction", null, {
+    const [transactionService, activityService] = await Promise.all([
+      import("@/lib/transactions/service"),
+      import("@/lib/activity/service"),
+    ] as const)
+
+    const result = await transactionService.importTransactions(transactions)
+    await activityService.recordUserAction(session.user, "transaction.import", "transaction", null, {
       imported: result.imported,
       skipped: result.skipped,
       source: isPdfImport ? "pdf" : "csv",
