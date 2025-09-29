@@ -5,6 +5,16 @@ import { parseCsvTransactions } from "@/lib/transactions/import-utils"
 import type { CsvMapping } from "@/lib/transactions/import-utils"
 import type { ParsedCsvTransaction } from "@/lib/transactions/types"
 
+type ConsoleLevel = "log" | "warn" | "error"
+
+const IMPORT_LOG_PREFIX = "[transactions/import]"
+const MAX_LOGGED_ERRORS = 5
+
+function logImport(level: ConsoleLevel, message: string, context: Record<string, unknown> = {}) {
+  const payload = { ...context, timestamp: new Date().toISOString() }
+  console[level](`${IMPORT_LOG_PREFIX} ${message}`, payload)
+}
+
 function withCors(response: NextResponse, request: NextRequest): NextResponse {
   const origin = request.headers.get("origin")
   if (origin) {
@@ -32,6 +42,9 @@ export async function OPTIONS(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const logContext: Record<string, unknown> = {
+    requestId: request.headers.get("x-request-id"),
+  }
   try {
     const session = await requireSession()
     const formData = await request.formData()
@@ -42,8 +55,15 @@ export async function POST(request: NextRequest) {
     const accountNameRaw = formData.get("accountName")
     const importType = typeof importTypeRaw === "string" ? importTypeRaw.toLowerCase() : ""
     const accountName = typeof accountNameRaw === "string" ? accountNameRaw : undefined
+    const baseContext = {
+      accountName: accountName ?? null,
+      dryRun,
+      importType: importType || "unknown",
+    }
+    Object.assign(logContext, baseContext)
 
     if (!(file instanceof Blob)) {
+      logImport("error", "Upload rejected because no file was provided", baseContext)
       return withCors(NextResponse.json({ error: "File is required" }, { status: 400 }), request)
     }
 
@@ -71,6 +91,19 @@ export async function POST(request: NextRequest) {
       errors = result.errors
     }
 
+    if (errors.length > 0) {
+      logImport(
+        "warn",
+        `Parser reported ${errors.length} error${errors.length === 1 ? "" : "s"} during ${
+          isPdfImport ? "PDF" : "CSV"
+        } ${dryRun ? "dry-run" : "import"}`,
+        {
+          ...baseContext,
+          sampleErrors: errors.slice(0, MAX_LOGGED_ERRORS),
+        },
+      )
+    }
+
     if (dryRun) {
       return withCors(
         NextResponse.json({ preview: transactions.slice(0, 20), total: transactions.length, errors }),
@@ -90,6 +123,13 @@ export async function POST(request: NextRequest) {
       source: isPdfImport ? "pdf" : "csv",
       errors: errors.length,
     })
+    if (result.imported === 0) {
+      logImport("warn", "Import completed but no new transactions were created", {
+        ...baseContext,
+        skipped: result.skipped,
+        parserErrors: errors.length,
+      })
+    }
     return withCors(NextResponse.json({ ...result, errors }), request)
   } catch (error) {
     if (error instanceof AuthenticationError) {
@@ -98,6 +138,12 @@ export async function POST(request: NextRequest) {
     if (error instanceof PasswordChangeRequiredError) {
       return withCors(NextResponse.json({ error: error.message }, { status: 403 }), request)
     }
+    logImport("error", "Unhandled exception while processing import request", {
+      ...logContext,
+      ...(error instanceof Error
+        ? { error: error.message, stack: error.stack }
+        : { error: String(error) }),
+    })
     return withCors(NextResponse.json({ error: (error as Error).message }, { status: 400 }), request)
   }
 }
