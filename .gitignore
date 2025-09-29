@@ -24,6 +24,7 @@ yarn-error.log*
 /data/*.db-shm
 /data/*.db-wal
 /data/*.sqlite
+/data/import-dumps/
 # generated icons
 /public/icons/icon-*.png
 

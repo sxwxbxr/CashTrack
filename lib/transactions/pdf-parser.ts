@@ -173,6 +173,37 @@ function extractAmounts(value: string): RegExpMatchArray[] {
 
 const PDF_DUMP_DIRECTORY = path.join(process.cwd(), "data", "import-dumps")
 const PDF_LOG_PREFIX = "[transactions/pdf-parser]"
+const PDF_DUMP_DIRECTORY_RELATIVE = path.relative(process.cwd(), PDF_DUMP_DIRECTORY)
+
+let ensureDumpDirectoryPromise: Promise<void> | null = null
+
+async function ensurePdfDumpDirectory() {
+  if (!ensureDumpDirectoryPromise) {
+    ensureDumpDirectoryPromise = (async () => {
+      try {
+        await mkdir(PDF_DUMP_DIRECTORY, { recursive: true })
+        console.info(`${PDF_LOG_PREFIX} Prepared PDF dump directory`, {
+          path: PDF_DUMP_DIRECTORY_RELATIVE,
+        })
+      } catch (error) {
+        console.warn(
+          `${PDF_LOG_PREFIX} Failed to prepare PDF dump directory`,
+          error instanceof Error ? { error: error.message } : { error },
+        )
+        throw error
+      }
+    })()
+  }
+
+  try {
+    await ensureDumpDirectoryPromise
+  } catch (error) {
+    ensureDumpDirectoryPromise = null
+    if (error instanceof Error) {
+      console.warn(`${PDF_LOG_PREFIX} Continuing without dump directory`, { error: error.message })
+    }
+  }
+}
 
 async function persistPdfTextDump(text: string, accountName?: string) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
@@ -187,7 +218,7 @@ async function persistPdfTextDump(text: string, accountName?: string) {
   const outputPath = path.join(PDF_DUMP_DIRECTORY, filename)
 
   try {
-    await mkdir(PDF_DUMP_DIRECTORY, { recursive: true })
+    await ensurePdfDumpDirectory()
     await writeFile(outputPath, text, "utf8")
     console.info(`${PDF_LOG_PREFIX} Wrote PDF text dump`, { path: path.relative(process.cwd(), outputPath) })
   } catch (error) {
@@ -197,6 +228,10 @@ async function persistPdfTextDump(text: string, accountName?: string) {
     )
   }
 }
+
+void ensurePdfDumpDirectory().catch(() => {
+  // The warning was already logged in ensurePdfDumpDirectory; continue without blocking module load.
+})
 
 export async function parsePdfTransactions(
   buffer: Buffer,
