@@ -3,6 +3,7 @@ import {
   CREATE_ACCOUNTS_TABLE,
   CREATE_AUTOMATION_RULES_TABLE,
   CREATE_CATEGORIES_TABLE,
+  CREATE_RECURRING_TRANSACTIONS_TABLE,
   CREATE_SETTINGS_TABLE,
   CREATE_SYNC_LOG_TABLE,
   CREATE_TRANSACTIONS_TABLE,
@@ -30,7 +31,17 @@ function ensureIndexes() {
   }
 }
 
-function ensureTransactionTransferColumns() {
+function ensureAccountCurrencyColumn() {
+  const db = getDatabase()
+  const columns = db.prepare("PRAGMA table_info(accounts)").all() as Array<{ name: string }>
+  const columnNames = new Set(columns.map((column) => column.name))
+
+  if (!columnNames.has("currency")) {
+    db.exec("ALTER TABLE accounts ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD'")
+  }
+}
+
+function ensureTransactionColumns() {
   const db = getDatabase()
   const columns = db.prepare("PRAGMA table_info(transactions)").all() as Array<{ name: string }>
   const columnNames = new Set(columns.map((column) => column.name))
@@ -41,6 +52,24 @@ function ensureTransactionTransferColumns() {
 
   if (!columnNames.has("transferDirection")) {
     db.exec("ALTER TABLE transactions ADD COLUMN transferDirection TEXT")
+  }
+
+  if (!columnNames.has("accountAmount")) {
+    db.exec("ALTER TABLE transactions ADD COLUMN accountAmount REAL NOT NULL DEFAULT 0")
+    db.exec("UPDATE transactions SET accountAmount = amount")
+  }
+
+  if (!columnNames.has("originalAmount")) {
+    db.exec("ALTER TABLE transactions ADD COLUMN originalAmount REAL NOT NULL DEFAULT 0")
+    db.exec("UPDATE transactions SET originalAmount = amount")
+  }
+
+  if (!columnNames.has("currency")) {
+    db.exec("ALTER TABLE transactions ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD'")
+  }
+
+  if (!columnNames.has("exchangeRate")) {
+    db.exec("ALTER TABLE transactions ADD COLUMN exchangeRate REAL NOT NULL DEFAULT 1")
   }
 }
 
@@ -55,6 +84,7 @@ export function runMigrations(): void {
     CREATE_CATEGORIES_TABLE,
     CREATE_ACCOUNTS_TABLE,
     CREATE_TRANSACTIONS_TABLE,
+    CREATE_RECURRING_TRANSACTIONS_TABLE,
     CREATE_AUTOMATION_RULES_TABLE,
     CREATE_SYNC_LOG_TABLE,
     CREATE_SETTINGS_TABLE,
@@ -65,7 +95,8 @@ export function runMigrations(): void {
     db.exec(statement)
   }
 
-  ensureTransactionTransferColumns()
+  ensureAccountCurrencyColumn()
+  ensureTransactionColumns()
   ensureIndexes()
   hasRunMigrations = true
 }

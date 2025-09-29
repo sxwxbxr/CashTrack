@@ -27,17 +27,40 @@ const querySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(200).optional(),
 })
 
-const createSchema = z.object({
-  date: z.string().min(1, "Date is required"),
-  description: z.string().min(1, "Description is required"),
-  categoryId: z.string().optional().nullable(),
-  categoryName: z.string().optional(),
-  amount: z.coerce.number(),
-  account: z.string().min(1, "Account is required"),
-  status: z.enum(["pending", "completed", "cleared"]).default("completed"),
-  type: z.enum(["income", "expense"]),
-  notes: z.string().optional(),
-})
+const recurrenceSchema = z
+  .object({
+    interval: z.coerce.number().int().min(1),
+    unit: z.enum(["day", "week", "month", "year"]),
+    startDate: z
+      .string()
+      .optional()
+      .refine((value) => !value || !Number.isNaN(new Date(value).getTime()), {
+        message: "Invalid start date",
+      }),
+  })
+  .strict()
+
+const createSchema = z
+  .object({
+    date: z.string().min(1, "Date is required"),
+    description: z.string().min(1, "Description is required"),
+    categoryId: z.string().optional().nullable(),
+    categoryName: z.string().optional(),
+    amount: z.coerce.number().optional(),
+    originalAmount: z.coerce.number().optional(),
+    accountAmount: z.coerce.number().optional(),
+    currency: z.string().optional(),
+    exchangeRate: z.coerce.number().positive().optional(),
+    account: z.string().min(1, "Account is required"),
+    status: z.enum(["pending", "completed", "cleared"]).default("completed"),
+    type: z.enum(["income", "expense"]),
+    notes: z.string().optional(),
+    recurrence: recurrenceSchema.optional(),
+  })
+  .refine((value) => value.amount !== undefined || value.originalAmount !== undefined, {
+    message: "Amount is required",
+    path: ["amount"],
+  })
 
 type QueryParams = z.infer<typeof querySchema>
 
