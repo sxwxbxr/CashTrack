@@ -115,9 +115,31 @@ function sanitizeAmount(value: string): number {
     negative = true
     cleaned = cleaned.slice(0, -1)
   }
-  cleaned = cleaned.replace(/[,$]/g, "").replace(/[()]/g, "")
+  cleaned = cleaned.replace(/[()]/g, "")
 
-  const amount = Number(cleaned)
+  const lastComma = cleaned.lastIndexOf(",")
+  const lastDot = cleaned.lastIndexOf(".")
+  const decimalSeparator = Math.max(lastComma, lastDot)
+
+  let normalized: string
+
+  if (decimalSeparator !== -1) {
+    const separatorChar = cleaned[decimalSeparator]
+    const integerPart = cleaned
+      .slice(0, decimalSeparator)
+      .replace(/[.,]/g, "")
+    const fractionalPart = cleaned
+      .slice(decimalSeparator + 1)
+      .replace(/[.,]/g, "")
+    normalized = `${integerPart}.${fractionalPart}`
+    if (separatorChar === "," && fractionalPart.length === 0) {
+      normalized = `${integerPart}`
+    }
+  } else {
+    normalized = cleaned.replace(/[.,]/g, "")
+  }
+
+  const amount = Number(normalized)
   if (Number.isNaN(amount)) {
     throw new Error(`Invalid amount: ${value}`)
   }
