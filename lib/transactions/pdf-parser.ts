@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { PdfReader } from "pdfreader"
 import pdfParse from "pdf-parse"
 
 import type { ParsedCsvTransaction, TransactionType } from "@/lib/transactions/types"
@@ -175,6 +176,93 @@ const PDF_DUMP_DIRECTORY = path.join(process.cwd(), "data", "import-dumps")
 const PDF_LOG_PREFIX = "[transactions/pdf-parser]"
 const PDF_DUMP_DIRECTORY_RELATIVE = path.relative(process.cwd(), PDF_DUMP_DIRECTORY)
 
+type PdfTextItem = {
+  x: number
+  y: number
+  text: string
+}
+
+async function extractPdfText(buffer: Buffer): Promise<{ lines: string[]; raw: string }> {
+  const reader = new PdfReader()
+  return new Promise((resolve, reject) => {
+    const pages: string[][] = []
+    let rows = new Map<number, PdfTextItem[]>()
+
+    const flushRows = () => {
+      if (rows.size === 0) {
+        return
+      }
+
+      const sortedRowKeys = Array.from(rows.keys()).sort((a, b) => a - b)
+      const pageLines: string[] = []
+
+      for (const key of sortedRowKeys) {
+        const items = rows.get(key) ?? []
+        if (items.length === 0) {
+          continue
+        }
+
+        items.sort((a, b) => a.x - b.x)
+
+        let line = ""
+        let previousX: number | null = null
+
+        for (const item of items) {
+          if (previousX !== null) {
+            const gap = item.x - previousX
+            if (gap > 1.5) {
+              line += gap > 6 ? "   " : " "
+            }
+          }
+
+          line += item.text
+          previousX = item.x
+        }
+
+        pageLines.push(line.trimEnd())
+      }
+
+      pages.push(pageLines)
+      rows = new Map<number, PdfTextItem[]>()
+    }
+
+    reader.parseBuffer(buffer, (error, item) => {
+      if (error) {
+        reject(error)
+        return
+      }
+
+      if (!item) {
+        flushRows()
+        const lines = pages.flatMap((pageLines, index) =>
+          index === pages.length - 1 ? pageLines : [...pageLines, ""],
+        )
+        resolve({ lines, raw: lines.join("\n") })
+        return
+      }
+
+      if ((item as { page?: number }).page) {
+        flushRows()
+        return
+      }
+
+      if ((item as PdfTextItem).text) {
+        const textItem = item as PdfTextItem
+        if (!textItem.text || !textItem.text.trim()) {
+          return
+        }
+        const normalizedY = Math.round(textItem.y * 10)
+        const existing = rows.get(normalizedY)
+        if (existing) {
+          existing.push(textItem)
+        } else {
+          rows.set(normalizedY, [textItem])
+        }
+      }
+    })
+  })
+}
+
 let ensureDumpDirectoryPromise: Promise<void> | null = null
 
 async function ensurePdfDumpDirectory() {
@@ -237,9 +325,24 @@ export async function parsePdfTransactions(
   buffer: Buffer,
   options: { accountName?: string } = {},
 ): Promise<{ transactions: ParsedCsvTransaction[]; errors: Array<{ line: number; message: string }> }> {
-  const result = await pdfParse(buffer)
-  await persistPdfTextDump(result.text, options.accountName)
-  const rawLines = result.text.split(/\r?\n/)
+  let rawLines: string[]
+  let rawText: string
+
+  try {
+    const extracted = await extractPdfText(buffer)
+    rawLines = extracted.lines
+    rawText = extracted.raw
+  } catch (error) {
+    console.warn(
+      `${PDF_LOG_PREFIX} Falling back to pdf-parse extraction`,
+      error instanceof Error ? { error: error.message } : { error },
+    )
+    const parsed = await pdfParse(buffer)
+    rawText = parsed.text
+    rawLines = parsed.text.split(/\r?\n/)
+  }
+
+  await persistPdfTextDump(rawText, options.accountName)
 
   const transactions: ParsedCsvTransaction[] = []
   const errors: Array<{ line: number; message: string }> = []
