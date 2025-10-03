@@ -59,6 +59,7 @@
     "next-themes": "latest",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.1",
+    "pdfreader": "^3.0.7",
     "react": "^18",
     "react-day-picker": "9.8.0",
     "react-dom": "^18",
@@ -87,5 +88,15 @@
   },
   "optionalDependencies": {
     "node-windows": "0.1.14"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild",
+      "unrs-resolver"
+    ],
+    "ignoredBuiltDependencies": [
+      "@tailwindcss/oxide"
+    ]
   }
 }

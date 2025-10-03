@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto"
 import type Database from "better-sqlite3"
 
-import { initDatabase, withTransaction } from "@/lib/db"
+import { initDatabase, recoverFromSchemaError, withTransaction } from "@/lib/db"
 import { ensureAccountExists } from "@/lib/accounts/service"
 import type { Account } from "@/lib/accounts/types"
 import { createAutomationRuleEvaluator } from "@/lib/categories/rule-matcher"
@@ -9,6 +9,7 @@ import { listAutomationRules } from "@/lib/categories/rule-repository"
 import { getCategoryById, getCategoryByName, listCategories } from "@/lib/categories/repository"
 import { ensureCurrencyTracked, ensureFreshCurrencyRates, getAppSettings } from "@/lib/settings/service"
 import { convertCurrency, ensureKnownCurrencies, normalizeCurrencyCode, roundAmount } from "@/lib/currency/service"
+import { VALID_STATUSES, VALID_TYPES, normalizeDate } from "@/lib/transactions/import-utils"
 import {
   bulkInsertTransactions,
   calculateTransactionTotals,
@@ -46,34 +47,34 @@ import type {
 
 void initDatabase()
 
+function isSchemaError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+  const message = error.message.toLowerCase()
+  return message.includes("no such table") || message.includes("no such column")
+}
+
+async function runWithDatabase<T>(operation: () => Promise<T>): Promise<T> {
+  await initDatabase()
+  try {
+    return await operation()
+  } catch (error) {
+    if (isSchemaError(error)) {
+      recoverFromSchemaError()
+      return await operation()
+    }
+    throw error
+  }
+}
+
 const DEFAULT_PAGE_SIZE = 50
-const VALID_STATUSES: TransactionStatus[] = ["pending", "completed", "cleared"]
-const VALID_TYPES: TransactionType[] = ["income", "expense", "transfer"]
 const MUTABLE_TRANSACTION_TYPES: TransactionType[] = ["income", "expense"]
 
 const ORDERABLE_FIELDS: Record<string, TransactionQueryOptions["orderBy"]> = {
   date: "date",
   amount: "amount",
   description: "description",
-}
-
-type CsvMapping = {
-  date: string
-  description: string
-  amount: string
-  category?: string
-  account?: string
-  status?: string
-  type?: string
-  notes?: string
-}
-
-function normalizeDate(input: string): string {
-  const parsed = new Date(input)
-  if (Number.isNaN(parsed.getTime())) {
-    throw new Error(`Invalid date: ${input}`)
-  }
-  return parsed.toISOString().slice(0, 10)
 }
 
 function applyAmount(amount: number, type: TransactionType): number {
@@ -285,42 +286,44 @@ async function getAutomationEvaluator(db?: Database) {
 }
 
 export async function reapplyAutomationRules(): Promise<number> {
-  const transactions = await listTransactionRecords()
-  if (transactions.length === 0) {
-    return 0
-  }
-
-  const evaluator = await getAutomationEvaluator()
-  let updatedCount = 0
-
-  await withTransaction(async (db) => {
-    for (const transaction of transactions) {
-      const match = evaluator(transaction.description)
-      if (!match) {
-        continue
-      }
-
-      const sameCategory =
-        transaction.categoryId === match.categoryId ||
-        transaction.categoryName.toLowerCase() === match.categoryName.toLowerCase()
-
-      if (sameCategory) {
-        continue
-      }
-
-      const updated = await updateTransactionRecord(
-        transaction.id,
-        { categoryId: match.categoryId, categoryName: match.categoryName },
-        db,
-      )
-
-      if (updated) {
-        updatedCount += 1
-      }
+  return runWithDatabase(async () => {
+    const transactions = await listTransactionRecords()
+    if (transactions.length === 0) {
+      return 0
     }
-  })
 
-  return updatedCount
+    const evaluator = await getAutomationEvaluator()
+    let updatedCount = 0
+
+    await withTransaction(async (db) => {
+      for (const transaction of transactions) {
+        const match = evaluator(transaction.description)
+        if (!match) {
+          continue
+        }
+
+        const sameCategory =
+          transaction.categoryId === match.categoryId ||
+          transaction.categoryName.toLowerCase() === match.categoryName.toLowerCase()
+
+        if (sameCategory) {
+          continue
+        }
+
+        const updated = await updateTransactionRecord(
+          transaction.id,
+          { categoryId: match.categoryId, categoryName: match.categoryName },
+          db,
+        )
+
+        if (updated) {
+          updatedCount += 1
+        }
+      }
+    })
+
+    return updatedCount
+  })
 }
 
 function buildFiltersFromParams(params: TransactionListParams): TransactionFilters {
@@ -362,39 +365,41 @@ function buildFiltersFromParams(params: TransactionListParams): TransactionFilte
 }
 
 export async function listTransactions(params: TransactionListParams): Promise<TransactionListResult> {
-  await processRecurringTransactions()
-  const {
-    sortField = "date",
-    sortDirection = "desc",
-    page = 1,
-    pageSize = DEFAULT_PAGE_SIZE,
-  } = params
+  return runWithDatabase(async () => {
+    await processRecurringTransactions()
+    const {
+      sortField = "date",
+      sortDirection = "desc",
+      page = 1,
+      pageSize = DEFAULT_PAGE_SIZE,
+    } = params
 
-  const safePage = Math.max(page, 1)
-  const safePageSize = Math.max(Math.min(pageSize, 200), 1)
-  const offset = (safePage - 1) * safePageSize
+    const safePage = Math.max(page, 1)
+    const safePageSize = Math.max(Math.min(pageSize, 200), 1)
+    const offset = (safePage - 1) * safePageSize
 
-  const filters = buildFiltersFromParams(params)
-  const options: TransactionQueryOptions = {
-    orderBy: ORDERABLE_FIELDS[sortField] ?? "date",
-    orderDirection: sortDirection === "asc" ? "asc" : "desc",
-    limit: safePageSize,
-    offset,
-  }
+    const filters = buildFiltersFromParams(params)
+    const options: TransactionQueryOptions = {
+      orderBy: ORDERABLE_FIELDS[sortField] ?? "date",
+      orderDirection: sortDirection === "asc" ? "asc" : "desc",
+      limit: safePageSize,
+      offset,
+    }
 
-  const [transactions, total, totals] = await Promise.all([
-    listTransactionRecords(filters, options),
-    countTransactions(filters),
-    calculateTransactionTotals(filters),
-  ])
+    const [transactions, total, totals] = await Promise.all([
+      listTransactionRecords(filters, options),
+      countTransactions(filters),
+      calculateTransactionTotals(filters),
+    ])
 
-  return {
-    transactions,
-    total,
-    page: safePage,
-    pageSize: safePageSize,
-    totals,
-  }
+    return {
+      transactions,
+      total,
+      page: safePage,
+      pageSize: safePageSize,
+      totals,
+    }
+  })
 }
 
 async function prepareTransactionRecord(
@@ -479,101 +484,106 @@ async function registerRecurringTransaction(
 
 async function processRecurringTransactions(referenceDate?: string): Promise<number> {
   const targetDate = referenceDate ? normalizeDate(referenceDate) : new Date().toISOString().slice(0, 10)
-  return withTransaction(async (db) => {
-    const schedules = await listRecurringTransactionRecords(db)
-    if (schedules.length === 0) {
-      return 0
-    }
-
-    let createdCount = 0
-
-    for (const schedule of schedules) {
-      if (!schedule.isActive || !schedule.nextRunDate) {
-        continue
-      }
-      if (schedule.type === "transfer") {
-        continue
+  return runWithDatabase(() =>
+    withTransaction(async (db) => {
+      const schedules = await listRecurringTransactionRecords(db)
+      if (schedules.length === 0) {
+        return 0
       }
 
-      const interval = normalizeRecurrenceInterval(schedule.interval)
-      let nextRunDate = schedule.nextRunDate
-      let safety = 36
-      while (nextRunDate && nextRunDate <= targetDate && safety > 0) {
-        safety -= 1
-        const amountDetails = await resolveTransactionAmounts(
-          schedule.type,
-          {
-            account: schedule.account,
-            currency: schedule.currency,
-            amount: schedule.originalAmount,
-            originalAmount: schedule.originalAmount,
-          },
-          db,
-        )
+      let createdCount = 0
 
-        const record: CreateTransactionRecord = {
-          id: `txn_${randomUUID()}`,
-          date: nextRunDate,
-          description: schedule.description,
-          categoryId: schedule.categoryId,
-          categoryName: schedule.categoryName,
-          amount: amountDetails.amount,
-          accountAmount: amountDetails.accountAmount,
-          originalAmount: amountDetails.originalAmount,
-          currency: amountDetails.currency,
-          exchangeRate: amountDetails.exchangeRate,
-          account: amountDetails.account.name,
-          status: schedule.status,
-          type: schedule.type,
-          notes: schedule.notes,
-          transferGroupId: null,
-          transferDirection: null,
+      for (const schedule of schedules) {
+        if (!schedule.isActive || !schedule.nextRunDate) {
+          continue
+        }
+        if (schedule.type === "transfer") {
+          continue
         }
 
-        const created = await insertTransactionRecord(record, db)
-        createdCount += 1
+        const interval = normalizeRecurrenceInterval(schedule.interval)
+        let nextRunDate = schedule.nextRunDate
+        let safety = 36
+        while (nextRunDate && nextRunDate <= targetDate && safety > 0) {
+          safety -= 1
+          const amountDetails = await resolveTransactionAmounts(
+            schedule.type,
+            {
+              account: schedule.account,
+              currency: schedule.currency,
+              amount: schedule.originalAmount,
+              originalAmount: schedule.originalAmount,
+            },
+            db,
+          )
 
-        const updatedNextRunDate = addRecurrenceInterval(nextRunDate, interval, schedule.unit)
-        await updateRecurringTransactionRecord(
-          schedule.id,
-          {
-            amount: Math.abs(created.amount),
-            accountAmount: Math.abs(created.accountAmount),
-            originalAmount: Math.abs(created.originalAmount),
-            currency: created.currency,
-            exchangeRate: created.exchangeRate,
-            account: created.account,
-            lastRunDate: nextRunDate,
-            nextRunDate: updatedNextRunDate,
-          },
-          db,
-        )
+          const record: CreateTransactionRecord = {
+            id: `txn_${randomUUID()}`,
+            date: nextRunDate,
+            description: schedule.description,
+            categoryId: schedule.categoryId,
+            categoryName: schedule.categoryName,
+            amount: amountDetails.amount,
+            accountAmount: amountDetails.accountAmount,
+            originalAmount: amountDetails.originalAmount,
+            currency: amountDetails.currency,
+            exchangeRate: amountDetails.exchangeRate,
+            account: amountDetails.account.name,
+            status: schedule.status,
+            type: schedule.type,
+            notes: schedule.notes,
+            transferGroupId: null,
+            transferDirection: null,
+          }
 
-        nextRunDate = updatedNextRunDate
+          const created = await insertTransactionRecord(record, db)
+          createdCount += 1
+
+          const updatedNextRunDate = addRecurrenceInterval(nextRunDate, interval, schedule.unit)
+          await updateRecurringTransactionRecord(
+            schedule.id,
+            {
+              amount: Math.abs(created.amount),
+              accountAmount: Math.abs(created.accountAmount),
+              originalAmount: Math.abs(created.originalAmount),
+              currency: created.currency,
+              exchangeRate: created.exchangeRate,
+              account: created.account,
+              lastRunDate: nextRunDate,
+              nextRunDate: updatedNextRunDate,
+            },
+            db,
+          )
+
+          nextRunDate = updatedNextRunDate
+        }
       }
-    }
 
-    return createdCount
-  })
-}
+      return createdCount
+    }),
+  )
+  }
 
 export async function createTransaction(input: CreateTransactionInput): Promise<Transaction> {
   if (input.type === "transfer") {
     throw new Error("Transfers must be created using the transfer workflow")
   }
 
-  return withTransaction(async (db) => {
-    const record = await prepareTransactionRecord(input, db)
-    const transaction = await insertTransactionRecord(record, db)
-    if (input.recurrence) {
-      await registerRecurringTransaction(transaction, input.recurrence, db)
-    }
-    return transaction
-  })
+  return runWithDatabase(() =>
+    withTransaction(async (db) => {
+      const record = await prepareTransactionRecord(input, db)
+      const transaction = await insertTransactionRecord(record, db)
+      if (input.recurrence) {
+        await registerRecurringTransaction(transaction, input.recurrence, db)
+      }
+      return transaction
+    }),
+  )
 }
 
 export async function updateTransaction(id: string, updates: UpdateTransactionInput): Promise<Transaction> {
-  return withTransaction(async (db) => {
+  return runWithDatabase(() =>
+    withTransaction(async (db) => {
     const existing = await getTransactionRecordById(id, db)
     if (!existing) {
       throw new Error("Transaction not found")
@@ -670,12 +680,13 @@ export async function updateTransaction(id: string, updates: UpdateTransactionIn
       db,
     )
 
-    if (!updated) {
-      throw new Error("Transaction not found")
-    }
+      if (!updated) {
+        throw new Error("Transaction not found")
+      }
 
-    return updated
-  })
+      return updated
+    }),
+  )
 }
 
 async function deleteTransferGroup(groupId: string): Promise<number> {
@@ -697,23 +708,25 @@ async function deleteTransferGroup(groupId: string): Promise<number> {
 }
 
 export async function deleteTransaction(id: string): Promise<void> {
-  const existing = await getTransactionRecordById(id)
-  if (!existing) {
-    throw new Error("Transaction not found")
-  }
-
-  if (existing.type === "transfer" && existing.transferGroupId) {
-    const deletedCount = await deleteTransferGroup(existing.transferGroupId)
-    if (deletedCount === 0) {
-      throw new Error("Transfer not found")
+  await runWithDatabase(async () => {
+    const existing = await getTransactionRecordById(id)
+    if (!existing) {
+      throw new Error("Transaction not found")
     }
-    return
-  }
 
-  const deleted = await withTransaction(async (db) => deleteTransactionRecord(id, db))
-  if (!deleted) {
-    throw new Error("Transaction not found")
-  }
+    if (existing.type === "transfer" && existing.transferGroupId) {
+      const deletedCount = await deleteTransferGroup(existing.transferGroupId)
+      if (deletedCount === 0) {
+        throw new Error("Transfer not found")
+      }
+      return
+    }
+
+    const deleted = await withTransaction(async (db) => deleteTransactionRecord(id, db))
+    if (!deleted) {
+      throw new Error("Transaction not found")
+    }
+  })
 }
 
 function formatTransferDescription(base: string, direction: "in" | "out", counterparty: string) {
@@ -740,76 +753,78 @@ export async function createTransfer(
   const status = resolveStatus(input.status)
   const notes = input.notes?.trim() ? input.notes.trim() : null
 
-  return withTransaction(async (db) => {
-    const [fromAccount, toAccount] = await Promise.all([
-      ensureAccountExists(input.fromAccount, db),
-      ensureAccountExists(input.toAccount, db),
-    ])
+  return runWithDatabase(() =>
+    withTransaction(async (db) => {
+      const [fromAccount, toAccount] = await Promise.all([
+        ensureAccountExists(input.fromAccount, db),
+        ensureAccountExists(input.toAccount, db),
+      ])
 
-    let settings = await getAppSettings()
-    const baseCurrency = normalizeCurrencyCode(settings.baseCurrency)
-    const fromCurrency = normalizeCurrencyCode(fromAccount.currency || baseCurrency)
-    const toCurrency = normalizeCurrencyCode(toAccount.currency || baseCurrency)
-    const requiredCurrencies = ensureKnownCurrencies(baseCurrency, [fromCurrency, toCurrency])
-    await Promise.all(requiredCurrencies.map((code) => ensureCurrencyTracked(code)))
-    settings = await ensureFreshCurrencyRates({ currencies: requiredCurrencies })
+      let settings = await getAppSettings()
+      const baseCurrency = normalizeCurrencyCode(settings.baseCurrency)
+      const fromCurrency = normalizeCurrencyCode(fromAccount.currency || baseCurrency)
+      const toCurrency = normalizeCurrencyCode(toAccount.currency || baseCurrency)
+      const requiredCurrencies = ensureKnownCurrencies(baseCurrency, [fromCurrency, toCurrency])
+      await Promise.all(requiredCurrencies.map((code) => ensureCurrencyTracked(code)))
+      settings = await ensureFreshCurrencyRates({ currencies: requiredCurrencies })
 
-    const normalizedAmount = roundAmount(Math.abs(amount), 2)
-    const outgoingExchangeRate = resolveExchangeRate(fromCurrency, baseCurrency, settings.currencyRates)
-    const baseAmountAbs = roundAmount(normalizedAmount * outgoingExchangeRate, 2)
-    const incomingExchangeRate = resolveExchangeRate(toCurrency, baseCurrency, settings.currencyRates)
-    const incomingOriginalAbs =
-      incomingExchangeRate === 0
-        ? normalizedAmount
-        : roundAmount(baseAmountAbs / incomingExchangeRate, 2)
+      const normalizedAmount = roundAmount(Math.abs(amount), 2)
+      const outgoingExchangeRate = resolveExchangeRate(fromCurrency, baseCurrency, settings.currencyRates)
+      const baseAmountAbs = roundAmount(normalizedAmount * outgoingExchangeRate, 2)
+      const incomingExchangeRate = resolveExchangeRate(toCurrency, baseCurrency, settings.currencyRates)
+      const incomingOriginalAbs =
+        incomingExchangeRate === 0
+          ? normalizedAmount
+          : roundAmount(baseAmountAbs / incomingExchangeRate, 2)
 
-    const transferId = `trf_${randomUUID()}`
+      const transferId = `trf_${randomUUID()}`
 
-    const outgoingRecord: CreateTransactionRecord = {
-      id: `txn_${randomUUID()}`,
-      date: normalizedDate,
-      description: formatTransferDescription(input.description, "out", toAccount.name),
-      categoryId: null,
-      categoryName: "Transfer",
-      amount: -baseAmountAbs,
-      accountAmount: -normalizedAmount,
-      originalAmount: -normalizedAmount,
-      currency: fromCurrency,
-      exchangeRate: outgoingExchangeRate,
-      account: fromAccount.name,
-      status,
-      type: "transfer",
-      notes,
-      transferGroupId: transferId,
-      transferDirection: "out",
-    }
+      const outgoingRecord: CreateTransactionRecord = {
+        id: `txn_${randomUUID()}`,
+        date: normalizedDate,
+        description: formatTransferDescription(input.description, "out", toAccount.name),
+        categoryId: null,
+        categoryName: "Transfer",
+        amount: -baseAmountAbs,
+        accountAmount: -normalizedAmount,
+        originalAmount: -normalizedAmount,
+        currency: fromCurrency,
+        exchangeRate: outgoingExchangeRate,
+        account: fromAccount.name,
+        status,
+        type: "transfer",
+        notes,
+        transferGroupId: transferId,
+        transferDirection: "out",
+      }
 
-    const incomingRecord: CreateTransactionRecord = {
-      id: `txn_${randomUUID()}`,
-      date: normalizedDate,
-      description: formatTransferDescription(input.description, "in", fromAccount.name),
-      categoryId: null,
-      categoryName: "Transfer",
-      amount: baseAmountAbs,
-      accountAmount: incomingOriginalAbs,
-      originalAmount: incomingOriginalAbs,
-      currency: toCurrency,
-      exchangeRate: incomingExchangeRate,
-      account: toAccount.name,
-      status,
-      type: "transfer",
-      notes,
-      transferGroupId: transferId,
-      transferDirection: "in",
-    }
+      const incomingRecord: CreateTransactionRecord = {
+        id: `txn_${randomUUID()}`,
+        date: normalizedDate,
+        description: formatTransferDescription(input.description, "in", fromAccount.name),
+        categoryId: null,
+        categoryName: "Transfer",
+        amount: baseAmountAbs,
+        accountAmount: incomingOriginalAbs,
+        originalAmount: incomingOriginalAbs,
+        currency: toCurrency,
+        exchangeRate: incomingExchangeRate,
+        account: toAccount.name,
+        status,
+        type: "transfer",
+        notes,
+        transferGroupId: transferId,
+        transferDirection: "in",
+      }
 
-    const [outgoing, incoming] = await Promise.all([
-      insertTransactionRecord(outgoingRecord, db),
-      insertTransactionRecord(incomingRecord, db),
-    ])
+      const [outgoing, incoming] = await Promise.all([
+        insertTransactionRecord(outgoingRecord, db),
+        insertTransactionRecord(incomingRecord, db),
+      ])
 
-    return { transferId, transactions: [outgoing, incoming] }
-  })
+      return { transferId, transactions: [outgoing, incoming] }
+    }),
+  )
 }
 
 export interface UpdateRecurringScheduleInput {
@@ -823,11 +838,11 @@ export interface UpdateRecurringScheduleInput {
 }
 
 export async function listRecurringTransactions(): Promise<RecurringTransaction[]> {
-  return listRecurringTransactionRecords()
+  return runWithDatabase(() => listRecurringTransactionRecords())
 }
 
 export async function getRecurringTransaction(id: string): Promise<RecurringTransaction | null> {
-  return getRecurringTransactionById(id)
+  return runWithDatabase(() => getRecurringTransactionById(id))
 }
 
 export async function updateRecurringTransactionSchedule(
@@ -858,250 +873,113 @@ export async function updateRecurringTransactionSchedule(
     payload.status = updates.status
   }
 
-  const updated = await updateRecurringTransactionRecord(id, payload)
-  if (!updated) {
-    throw new Error("Recurring transaction not found")
-  }
-  return updated
+  return runWithDatabase(async () => {
+    const updated = await updateRecurringTransactionRecord(id, payload)
+    if (!updated) {
+      throw new Error("Recurring transaction not found")
+    }
+    return updated
+  })
 }
 
 export async function deleteRecurringTransaction(id: string): Promise<void> {
-  const deleted = await deleteRecurringTransactionRecord(id)
-  if (!deleted) {
-    throw new Error("Recurring transaction not found")
-  }
-}
-
-export function parseCsv(content: string): string[][] {
-  const rows: string[][] = []
-  let currentRow: string[] = []
-  let currentValue = ""
-  let inQuotes = false
-
-  const pushValue = () => {
-    currentRow.push(currentValue)
-    currentValue = ""
-  }
-
-  const pushRow = () => {
-    if (currentRow.length > 0 || currentValue.length > 0) {
-      pushValue()
-      rows.push(currentRow)
-      currentRow = []
-    }
-  }
-
-  for (let i = 0; i < content.length; i++) {
-    const char = content[i]
-
-    if (char === "\"") {
-      if (inQuotes && content[i + 1] === "\"") {
-        currentValue += "\""
-        i++
-      } else {
-        inQuotes = !inQuotes
-      }
-    } else if (char === "," && !inQuotes) {
-      pushValue()
-    } else if ((char === "\n" || char === "\r") && !inQuotes) {
-      if (char === "\r" && content[i + 1] === "\n") {
-        i++
-      }
-      pushRow()
-    } else {
-      currentValue += char
-    }
-  }
-
-  pushRow()
-  return rows.filter((row) => row.length > 0)
-}
-
-function sanitizeNumber(value: string): number {
-  const cleaned = value.replace(/[$,\s]/g, "").replace(/[()]/g, "")
-  const amount = Number(cleaned)
-  if (Number.isNaN(amount)) {
-    throw new Error(`Invalid amount: ${value}`)
-  }
-  if (value.includes("(") && value.includes(")")) {
-    return -Math.abs(amount)
-  }
-  return amount
-}
-
-export function parseCsvTransactions(content: string, mapping: CsvMapping) {
-  const rows = parseCsv(content.replace(/^\uFEFF/, ""))
-  if (rows.length === 0) {
-    return { transactions: [], errors: [] }
-  }
-
-  const [headerRow, ...dataRows] = rows
-  const headerMap = new Map<string, number>()
-  headerRow.forEach((header, index) => {
-    headerMap.set(header.trim().toLowerCase(), index)
-  })
-
-  const requiredFields: Array<keyof CsvMapping> = ["date", "description", "amount"]
-  for (const field of requiredFields) {
-    const selected = mapping[field]
-    if (!selected) {
-      throw new Error(`Missing mapping for ${field}`)
-    }
-    if (!headerMap.has(selected.trim().toLowerCase())) {
-      throw new Error(`Column ${selected} not found in CSV header`)
-    }
-  }
-
-  const transactions: ParsedCsvTransaction[] = []
-  const errors: Array<{ line: number; message: string }> = []
-
-  dataRows.forEach((row, rowIndex) => {
-    const lineNumber = rowIndex + 2
-    try {
-      const dateColumn = headerMap.get(mapping.date.trim().toLowerCase())!
-      const descriptionColumn = headerMap.get(mapping.description.trim().toLowerCase())!
-      const amountColumn = headerMap.get(mapping.amount.trim().toLowerCase())!
-
-      const dateValue = row[dateColumn]?.trim()
-      const descriptionValue = row[descriptionColumn]?.trim()
-      const amountValue = row[amountColumn]?.trim()
-
-      if (!dateValue || !descriptionValue || !amountValue) {
-        throw new Error("Missing required values")
-      }
-
-      const date = normalizeDate(dateValue)
-      const amount = sanitizeNumber(amountValue)
-      const transactionType: TransactionType = amount >= 0 ? "income" : "expense"
-
-      const parsed: ParsedCsvTransaction = {
-        date,
-        description: descriptionValue,
-        amount: Math.abs(amount),
-        type: transactionType,
-      }
-
-      if (mapping.category) {
-        const categoryColumn = headerMap.get(mapping.category.trim().toLowerCase())
-        if (typeof categoryColumn === "number") {
-          const categoryValue = row[categoryColumn]?.trim()
-          if (categoryValue) {
-            parsed.categoryName = categoryValue
-          }
-        }
-      }
-
-      if (mapping.account) {
-        const accountColumn = headerMap.get(mapping.account.trim().toLowerCase())
-        if (typeof accountColumn === "number") {
-          const accountValue = row[accountColumn]?.trim()
-          if (accountValue) {
-            parsed.account = accountValue
-          }
-        }
-      }
-
-      if (mapping.status) {
-        const statusColumn = headerMap.get(mapping.status.trim().toLowerCase())
-        if (typeof statusColumn === "number") {
-          const statusValue = row[statusColumn]?.trim().toLowerCase()
-          if (statusValue && VALID_STATUSES.includes(statusValue as TransactionStatus)) {
-            parsed.status = statusValue as TransactionStatus
-          }
-        }
-      }
-
-      if (mapping.type) {
-        const typeColumn = headerMap.get(mapping.type.trim().toLowerCase())
-        if (typeof typeColumn === "number") {
-          const typeValue = row[typeColumn]?.trim().toLowerCase()
-          if (typeValue && VALID_TYPES.includes(typeValue as TransactionType)) {
-            parsed.type = typeValue as TransactionType
-          }
-        }
-      }
-
-      if (mapping.notes) {
-        const notesColumn = headerMap.get(mapping.notes.trim().toLowerCase())
-        if (typeof notesColumn === "number") {
-          const notesValue = row[notesColumn]?.trim()
-          if (notesValue) {
-            parsed.notes = notesValue
-          }
-        }
-      }
-
-      transactions.push(parsed)
-    } catch (error) {
-      errors.push({ line: lineNumber, message: (error as Error).message })
+  await runWithDatabase(async () => {
+    const deleted = await deleteRecurringTransactionRecord(id)
+    if (!deleted) {
+      throw new Error("Recurring transaction not found")
     }
   })
-
-  return { transactions, errors }
 }
+
+export { parseCsvTransactions, parseCsv } from "@/lib/transactions/import-utils"
 
 export async function importTransactions(transactionsToImport: ParsedCsvTransaction[]) {
-  if (transactionsToImport.length === 0) {
-    return { imported: 0, skipped: 0 }
-  }
+  return runWithDatabase(() =>
+    withTransaction(async (db) => {
+      if (transactionsToImport.length === 0) {
+        return { imported: 0, skipped: 0 }
+      }
 
-  const existingTransactions = await listTransactionRecords()
-  const existingKeys = new Set(
-    existingTransactions.map((transaction) =>
-      [transaction.date, transaction.description.toLowerCase(), transaction.amount, transaction.account.toLowerCase()].join("|"),
-    ),
+      const existingTransactions = await listTransactionRecords({}, {}, db)
+      const existingKeys = new Set(
+        existingTransactions.map((transaction) =>
+          [
+            transaction.date,
+            transaction.description.toLowerCase(),
+            transaction.amount,
+            transaction.account.toLowerCase(),
+          ].join("|"),
+        ),
+      )
+
+      const evaluator = await getAutomationEvaluator(db)
+      const newRecords: CreateTransactionRecord[] = []
+
+      for (const entry of transactionsToImport) {
+        const type = resolveType(entry.type)
+        const status = resolveStatus(entry.status)
+        const normalizedAccount = (entry.account ?? "Checking").trim() || "Checking"
+
+        const amountDetails = await resolveTransactionAmounts(
+          type,
+          {
+            account: normalizedAccount,
+            currency: entry.currency ?? undefined,
+            amount: entry.originalAmount ?? entry.amount,
+            originalAmount: entry.originalAmount ?? entry.amount,
+            accountAmount: entry.accountAmount ?? undefined,
+            exchangeRate: entry.exchangeRate ?? undefined,
+          },
+          db,
+        )
+
+        const key = [
+          entry.date,
+          entry.description.toLowerCase(),
+          amountDetails.amount,
+          amountDetails.account.name.toLowerCase(),
+        ].join("|")
+        if (existingKeys.has(key)) {
+          continue
+        }
+        existingKeys.add(key)
+
+        const baseCategory = await resolveCategoryReference(
+          entry.categoryId ?? null,
+          entry.categoryName,
+          db,
+        )
+        const matched = evaluator(entry.description)
+        const finalCategory = matched ?? baseCategory
+
+        newRecords.push({
+          id: `txn_${randomUUID()}`,
+          date: entry.date,
+          description: entry.description,
+          categoryId: finalCategory.categoryId,
+          categoryName: finalCategory.categoryName,
+          amount: amountDetails.amount,
+          accountAmount: amountDetails.accountAmount,
+          originalAmount: amountDetails.originalAmount,
+          currency: amountDetails.currency,
+          exchangeRate: amountDetails.exchangeRate,
+          account: amountDetails.account.name,
+          status,
+          type,
+          notes: entry.notes ?? null,
+          transferGroupId: null,
+          transferDirection: null,
+        })
+      }
+
+      if (newRecords.length > 0) {
+        await bulkInsertTransactions(newRecords, db)
+      }
+
+      return {
+        imported: newRecords.length,
+        skipped: transactionsToImport.length - newRecords.length,
+      }
+    }),
   )
-
-  const evaluator = await getAutomationEvaluator()
-  const accountCache = new Map<string, string>()
-
-  const newRecords: CreateTransactionRecord[] = []
-
-  for (const entry of transactionsToImport) {
-    const type = resolveType(entry.type)
-    const amount = applyAmount(entry.amount, type)
-    const rawAccount = (entry.account ?? "Checking").trim()
-    const candidateAccount = rawAccount || "Checking"
-    const candidateKey = candidateAccount.toLowerCase()
-    let ensuredAccount = accountCache.get(candidateKey)
-    if (!ensuredAccount) {
-      const ensured = await ensureAccountExists(candidateAccount)
-      ensuredAccount = ensured.name
-      accountCache.set(candidateKey, ensuredAccount)
-      accountCache.set(ensuredAccount.toLowerCase(), ensuredAccount)
-    }
-    const account = ensuredAccount
-    const status = resolveStatus(entry.status)
-    const key = [entry.date, entry.description.toLowerCase(), amount, account.toLowerCase()].join("|")
-    if (existingKeys.has(key)) {
-      continue
-    }
-    existingKeys.add(key)
-
-    const baseCategory = await resolveCategoryReference(entry.categoryId ?? null, entry.categoryName, undefined)
-    const matched = evaluator(entry.description)
-    const finalCategory = matched ?? baseCategory
-
-    newRecords.push({
-      id: `txn_${randomUUID()}`,
-      date: entry.date,
-      description: entry.description,
-      categoryId: finalCategory.categoryId,
-      categoryName: finalCategory.categoryName,
-      amount,
-      account,
-      status,
-      type,
-      notes: entry.notes ?? null,
-    })
-  }
-
-  if (newRecords.length > 0) {
-    await bulkInsertTransactions(newRecords)
-  }
-
-  return {
-    imported: newRecords.length,
-    skipped: transactionsToImport.length - newRecords.length,
-  }
 }

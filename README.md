@@ -55,6 +55,8 @@
 npm install
 ```
 
+> Prefer pnpm? Run `pnpm install` followed by `pnpm approve-builds better-sqlite3` so the native driver is allowed to compile on pnpm 9+.
+
 ### 2. Configure your environment
 
 Copy `.env.example` to `.env.local` (or `.env`) and set a strong session secret. All data lives inside `CASHTRACK_DATA_DIR` (defaults to `./data`).

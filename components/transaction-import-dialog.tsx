@@ -225,6 +225,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
     const response = await fetch("/api/transactions/import", {
       method: "POST",
       body: formData,
+      credentials: "include",
     })
 
     if (!response.ok) {

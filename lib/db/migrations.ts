@@ -31,6 +31,62 @@ function ensureIndexes() {
   }
 }
 
+function ensureRecurringTransactionColumns() {
+  const db = getDatabase()
+  const columns = db.prepare("PRAGMA table_info(recurring_transactions)").all() as Array<{ name: string }>
+  const columnNames = new Set(columns.map((column) => column.name))
+
+  if (!columnNames.has("interval")) {
+    db.exec("ALTER TABLE recurring_transactions ADD COLUMN interval INTEGER NOT NULL DEFAULT 1")
+  }
+
+  if (!columnNames.has("intervalUnit")) {
+    db.exec("ALTER TABLE recurring_transactions ADD COLUMN intervalUnit TEXT NOT NULL DEFAULT 'month'")
+  }
+
+  if (!columnNames.has("nextRunDate")) {
+    db.exec(
+      "ALTER TABLE recurring_transactions ADD COLUMN nextRunDate TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z'",
+    )
+    db.exec(
+      "UPDATE recurring_transactions SET nextRunDate = COALESCE(createdAt, updatedAt, '1970-01-01T00:00:00.000Z') WHERE nextRunDate = '1970-01-01T00:00:00.000Z'",
+    )
+  }
+
+  if (!columnNames.has("lastRunDate")) {
+    db.exec("ALTER TABLE recurring_transactions ADD COLUMN lastRunDate TEXT")
+  }
+
+  if (!columnNames.has("isActive")) {
+    db.exec("ALTER TABLE recurring_transactions ADD COLUMN isActive INTEGER NOT NULL DEFAULT 1")
+  }
+
+  if (!columnNames.has("accountAmount")) {
+    db.exec("ALTER TABLE recurring_transactions ADD COLUMN accountAmount REAL NOT NULL DEFAULT 0")
+    db.exec("UPDATE recurring_transactions SET accountAmount = ABS(amount)")
+  }
+
+  if (!columnNames.has("originalAmount")) {
+    db.exec("ALTER TABLE recurring_transactions ADD COLUMN originalAmount REAL NOT NULL DEFAULT 0")
+    db.exec("UPDATE recurring_transactions SET originalAmount = ABS(amount)")
+  }
+
+  if (!columnNames.has("currency")) {
+    db.exec("ALTER TABLE recurring_transactions ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD'")
+  }
+
+  if (!columnNames.has("exchangeRate")) {
+    db.exec("ALTER TABLE recurring_transactions ADD COLUMN exchangeRate REAL NOT NULL DEFAULT 1")
+  }
+}
+
+function ensureLatestSchema() {
+  ensureAccountCurrencyColumn()
+  ensureTransactionColumns()
+  ensureRecurringTransactionColumns()
+  ensureIndexes()
+}
+
 function ensureAccountCurrencyColumn() {
   const db = getDatabase()
   const columns = db.prepare("PRAGMA table_info(accounts)").all() as Array<{ name: string }>
@@ -73,8 +129,8 @@ function ensureTransactionColumns() {
   }
 }
 
-export function runMigrations(): void {
-  if (hasRunMigrations) {
+export function runMigrations(force = false): void {
+  if (hasRunMigrations && !force) {
     return
   }
 
@@ -95,8 +151,10 @@ export function runMigrations(): void {
     db.exec(statement)
   }
 
-  ensureAccountCurrencyColumn()
-  ensureTransactionColumns()
-  ensureIndexes()
+  ensureLatestSchema()
   hasRunMigrations = true
+}
+
+export function refreshSchema(): void {
+  runMigrations(true)
 }

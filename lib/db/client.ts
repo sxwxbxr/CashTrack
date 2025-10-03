@@ -26,6 +26,7 @@ function createFriendlyBindingError(original: Error): Error {
     "CashTrack can't open its local database because the native better-sqlite3 module failed to load. " +
     `The current runtime is ${runtime}. ` +
     "Reinstall the dependencies with `pnpm install` and then try again. " +
+    "If you are using pnpm v9 or newer, run `pnpm approve-builds better-sqlite3` so the native module is allowed to compile and then reinstall. " +
     "If the issue persists, rebuild the driver with `pnpm rebuild better-sqlite3`. " +
     "Windows users may need to install the \"Desktop development with C++\" workload from the Visual Studio Build Tools. " +
     `Original error: ${original.message}`

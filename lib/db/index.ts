@@ -1,5 +1,5 @@
 import { getDatabase } from "./client"
-import { runMigrations } from "./migrations"
+import { refreshSchema, runMigrations } from "./migrations"
 import { seedIfNeeded } from "./seed"
 
 let initialized = false
@@ -28,3 +28,6 @@ export async function initDatabase(): Promise<void> {
 }
 
 export { getDatabase, withTransaction, prepareStatement } from "./client"
+export function recoverFromSchemaError(): void {
+  refreshSchema()
+}

@@ -94,6 +94,10 @@ export interface ParsedCsvTransaction {
   status?: TransactionStatus
   type?: TransactionType
   notes?: string | null
+  originalAmount?: number
+  accountAmount?: number
+  currency?: string
+  exchangeRate?: number
 }
 
 export interface CreateTransferInput {
