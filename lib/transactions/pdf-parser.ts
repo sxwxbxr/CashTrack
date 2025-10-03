@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { PdfReader } from "pdfreader"
-import pdfParse from "pdf-parse"
+import pdfParse from "pdf-parse/lib/pdf-parse.js"
 
 import type { ParsedCsvTransaction, TransactionType } from "@/lib/transactions/types"
 
@@ -321,6 +321,233 @@ void ensurePdfDumpDirectory().catch(() => {
   // The warning was already logged in ensurePdfDumpDirectory; continue without blocking module load.
 })
 
+function isRaiffeisenStatement(lines: string[], rawText: string): boolean {
+  const hasHeader = lines.some((line) =>
+    /Datum\s+Text\s+Belastungen\s+Gutschriften\s+Saldo/i.test(line),
+  )
+  if (!hasHeader) {
+    return false
+  }
+
+  if (/Raiffeisenbank/i.test(rawText)) {
+    return true
+  }
+
+  return /Kontoauszug\s+\d{2}\.\d{2}\.\d{4}\s+-\s+\d{2}\.\d{2}\.\d{4}/.test(rawText)
+}
+
+type RaiffeisenEntry = {
+  dateToken: string
+  mainLine: string
+  extras: string[]
+  lineNumber: number
+}
+
+function normalizeTableArtifacts(value: string): string {
+  return value.replace(/^[A-Za-z0-9_]+(?=\d{2}\.\d{2}\.\d{2}\s)/, "").trim()
+}
+
+const CREDIT_KEYWORDS = [
+  /gutschrift/,
+  /eingang/,
+  /zahlungseingang/,
+  /erstattung/,
+  /übertrag von/,
+  /uebertrag von/,
+  /zins/,
+]
+
+const DEBIT_KEYWORDS = [
+  /belastung/,
+  /einkauf/,
+  /zahlung/,
+  /übertrag auf/,
+  /uebertrag auf/,
+  /abbuchung/,
+]
+
+function parseRaiffeisenStatement(
+  lines: string[],
+  account: string,
+): { transactions: ParsedCsvTransaction[]; errors: Array<{ line: number; message: string }> } {
+  const transactions: ParsedCsvTransaction[] = []
+  const errors: Array<{ line: number; message: string }> = []
+  let previousBalanceCents: number | undefined
+  let currentEntry: RaiffeisenEntry | null = null
+
+  const finalizeCurrent = () => {
+    if (!currentEntry) {
+      return
+    }
+
+    const normalizedDate = normalizePdfDate(currentEntry.dateToken)
+    if (!normalizedDate) {
+      errors.push({ line: currentEntry.lineNumber, message: "Unable to parse transaction date" })
+      currentEntry = null
+      return
+    }
+
+    let remainder = currentEntry.mainLine.trim()
+    if (!remainder) {
+      currentEntry = null
+      return
+    }
+
+    let amountToken: string | null = null
+    let balanceToken: string | null = null
+
+    const trailingPairMatch = remainder.match(/(-?\d[\d'.,]*)\s+(-?\d[\d'.,]*)\s*$/)
+    if (trailingPairMatch) {
+      amountToken = trailingPairMatch[1]
+      balanceToken = trailingPairMatch[2]
+      remainder = remainder.slice(0, remainder.length - trailingPairMatch[0].length).trim()
+    } else {
+      const singleMatch = remainder.match(/(-?\d[\d'.,]*)\s*$/)
+      if (singleMatch) {
+        balanceToken = singleMatch[1]
+        remainder = remainder.slice(0, remainder.length - singleMatch[0].length).trim()
+      }
+    }
+
+    const normalizedExtras = currentEntry.extras
+      .map((line) => normalizeTableArtifacts(line).replace(/\s+/g, " ").trim())
+      .filter((line) => line.length > 0 && !/^\d+\s*\/\s*\d+$/.test(line) && line !== "0")
+
+    const descriptionParts = [remainder.replace(/\s+/g, " ").trim(), ...normalizedExtras].filter(
+      (part) => part.length > 0,
+    )
+    const description = descriptionParts.join("; ")
+    const loweredDescription = description.toLowerCase()
+
+    let amountValueCents: number | undefined
+    let balanceValueCents: number | undefined
+
+    if (amountToken) {
+      try {
+        amountValueCents = toCents(sanitizeAmount(amountToken))
+      } catch (error) {
+        errors.push({
+          line: currentEntry.lineNumber,
+          message: error instanceof Error ? error.message : "Invalid amount",
+        })
+      }
+    }
+
+    if (balanceToken) {
+      try {
+        balanceValueCents = toCents(sanitizeAmount(balanceToken))
+      } catch (error) {
+        errors.push({
+          line: currentEntry.lineNumber,
+          message: error instanceof Error ? error.message : "Invalid balance",
+        })
+      }
+    }
+
+    const isBalanceMarker =
+      /^saldo/.test(loweredDescription) || /^saldovortrag/.test(loweredDescription) || loweredDescription.startsWith("umsatz")
+
+    if (isBalanceMarker) {
+      if (typeof balanceValueCents === "number") {
+        previousBalanceCents = balanceValueCents
+      }
+      currentEntry = null
+      return
+    }
+
+    if (typeof balanceValueCents !== "number" && typeof amountValueCents !== "number") {
+      errors.push({ line: currentEntry.lineNumber, message: "Unable to determine amount" })
+      currentEntry = null
+      return
+    }
+
+    const likelyCredit = CREDIT_KEYWORDS.some((regex) => regex.test(loweredDescription))
+    const likelyDebit = DEBIT_KEYWORDS.some((regex) => regex.test(loweredDescription))
+
+    let resolvedAmountCents: number | undefined
+
+    if (typeof balanceValueCents === "number") {
+      if (typeof previousBalanceCents === "number") {
+        const delta = balanceValueCents - previousBalanceCents
+        if (delta !== 0) {
+          resolvedAmountCents = delta
+        } else if (typeof amountValueCents === "number") {
+          resolvedAmountCents = likelyCredit && !likelyDebit ? Math.abs(amountValueCents) : -Math.abs(amountValueCents)
+        } else {
+          resolvedAmountCents = 0
+        }
+      } else if (typeof amountValueCents === "number") {
+        resolvedAmountCents = likelyCredit && !likelyDebit ? Math.abs(amountValueCents) : -Math.abs(amountValueCents)
+      } else {
+        previousBalanceCents = balanceValueCents
+        currentEntry = null
+        return
+      }
+      previousBalanceCents = balanceValueCents
+    } else if (typeof amountValueCents === "number") {
+      const sign = likelyCredit && !likelyDebit ? 1 : -1
+      resolvedAmountCents = sign * Math.abs(amountValueCents)
+      if (typeof previousBalanceCents === "number") {
+        previousBalanceCents += resolvedAmountCents
+      }
+    }
+
+    if (typeof resolvedAmountCents !== "number" || resolvedAmountCents === 0) {
+      currentEntry = null
+      return
+    }
+
+    if (
+      typeof amountValueCents === "number" &&
+      Math.abs(Math.abs(resolvedAmountCents) - Math.abs(amountValueCents)) > 1
+    ) {
+      errors.push({
+        line: currentEntry.lineNumber,
+        message: "Statement amount does not match calculated balance delta",
+      })
+    }
+
+    const type: TransactionType = resolvedAmountCents >= 0 ? "income" : "expense"
+    transactions.push({
+      date: normalizedDate,
+      description: description || "Statement entry",
+      amount: Math.abs(resolvedAmountCents) / 100,
+      type,
+      account,
+    })
+
+    currentEntry = null
+  }
+
+  lines.forEach((line, index) => {
+    const trimmed = line.trim()
+    if (!trimmed) {
+      return
+    }
+
+    const normalized = normalizeTableArtifacts(trimmed)
+    if (/^\d{2}\.\d{2}\.\d{2}\s/.test(normalized)) {
+      finalizeCurrent()
+      const mainLine = normalized.slice(8).trim()
+      currentEntry = {
+        dateToken: normalized.slice(0, 8),
+        mainLine,
+        extras: [],
+        lineNumber: index + 1,
+      }
+      return
+    }
+
+    if (currentEntry) {
+      currentEntry.extras.push(trimmed)
+    }
+  })
+
+  finalizeCurrent()
+
+  return { transactions, errors }
+}
+
 export async function parsePdfTransactions(
   buffer: Buffer,
   options: { accountName?: string } = {},
@@ -342,11 +569,15 @@ export async function parsePdfTransactions(
     rawLines = parsed.text.split(/\r?\n/)
   }
 
+  const account = options.accountName?.trim() || "Statement"
   await persistPdfTextDump(rawText, options.accountName)
+
+  if (isRaiffeisenStatement(rawLines, rawText)) {
+    return parseRaiffeisenStatement(rawLines, account)
+  }
 
   const transactions: ParsedCsvTransaction[] = []
   const errors: Array<{ line: number; message: string }> = []
-  const account = options.accountName?.trim() || "Statement"
 
   type PendingEntry = {
     date: string

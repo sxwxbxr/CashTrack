@@ -60,6 +60,13 @@ interface ImportResult extends ImportPreviewResponse {
 }
 
 const OPTIONAL_LABEL_KEY = "None"
+const CUSTOM_ACCOUNT_VALUE = "__custom__"
+
+type AccountOption = {
+  id: string
+  name: string
+  currency?: string | null
+}
 
 const parseHeader = (content: string): string[] => {
   const [firstLine] = content.split(/\r?\n/, 1)
@@ -106,7 +113,12 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
   const [result, setResult] = useState<ImportResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
-  const [pdfAccountName, setPdfAccountName] = useState(defaultStatementName)
+  const [pdfAccountName, setPdfAccountName] = useState("")
+  const [suggestedPdfAccountName, setSuggestedPdfAccountName] = useState(defaultStatementName)
+  const [accountOptions, setAccountOptions] = useState<AccountOption[]>([])
+  const [accountsLoading, setAccountsLoading] = useState(false)
+  const [accountsError, setAccountsError] = useState<string | null>(null)
+  const [pdfAccountSelection, setPdfAccountSelection] = useState<string>("")
 
   const requiredFields = useMemo(() => ({
     date: mapping.date,
@@ -127,9 +139,63 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
       setResult(null)
       setError(null)
       setIsProcessing(false)
-      setPdfAccountName(defaultStatementName)
+      setPdfAccountName("")
+      setSuggestedPdfAccountName(defaultStatementName)
+      setAccountOptions([])
+      setAccountsError(null)
+      setPdfAccountSelection("")
     }
   }, [open, defaultStatementName])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    let cancelled = false
+    const controller = new AbortController()
+    setAccountsLoading(true)
+    setAccountsError(null)
+
+    fetch("/api/accounts", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}))
+          throw new Error(typeof body.error === "string" ? body.error : t("Unable to load accounts"))
+        }
+        const data = (await response.json()) as {
+          accounts: Array<{ id: string; name: string; currency?: string | null }>
+        }
+        if (cancelled) {
+          return
+        }
+        const options = data.accounts
+          .map((account) => ({
+            id: account.id,
+            name: account.name,
+            currency: account.currency ?? null,
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+        setAccountOptions(options)
+      })
+      .catch((loadError) => {
+        if (controller.signal.aborted || cancelled) {
+          return
+        }
+        console.error(loadError)
+        setAccountsError(loadError instanceof Error ? loadError.message : t("Unable to load accounts"))
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAccountsLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [open, t])
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -142,7 +208,10 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
 
       if (isPdf) {
         const baseName = extension ? file.name.replace(/\.[^/.]+$/, "") : defaultStatementName
-        setPdfAccountName(baseName || defaultStatementName)
+        const suggestion = baseName || defaultStatementName
+        setSuggestedPdfAccountName(suggestion)
+        setPdfAccountName(suggestion)
+        setPdfAccountSelection("")
         setAvailableColumns([])
         setMapping({ date: "", description: "", amount: "" })
         return
@@ -188,7 +257,9 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
       setSelectedFile(null)
       setAvailableColumns([])
       setFileKind(null)
-      setPdfAccountName(defaultStatementName)
+      setPdfAccountName("")
+      setSuggestedPdfAccountName(defaultStatementName)
+      setPdfAccountSelection("")
     }
   }
 
@@ -245,6 +316,14 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
         return
       }
       if (fileKind === "pdf") {
+        if (!pdfAccountSelection) {
+          setError(t("Select the account for this statement"))
+          return
+        }
+        if (pdfAccountSelection === CUSTOM_ACCOUNT_VALUE && !pdfAccountName.trim()) {
+          setError(t("Enter an account name"))
+          return
+        }
         try {
           setIsProcessing(true)
           const previewResponse = (await submitImport(true)) as ImportPreviewResponse
@@ -355,16 +434,52 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
                 </Card>
               )}
               {fileKind === "pdf" && (
-                <div className="space-y-2">
-                  <Label htmlFor="pdf-account-name">{t("Account name")}</Label>
-                  <Input
-                    id="pdf-account-name"
-                    value={pdfAccountName}
-                    onChange={(event) => setPdfAccountName(event.target.value)}
-                    disabled={isProcessing}
-                  />
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>{t("Statement account")}</Label>
+                    <Select
+                      value={pdfAccountSelection}
+                      onValueChange={(value) => {
+                        setPdfAccountSelection(value)
+                        if (value === CUSTOM_ACCOUNT_VALUE) {
+                          setPdfAccountName(suggestedPdfAccountName)
+                          return
+                        }
+                        const selected = accountOptions.find((option) => option.id === value)
+                        setPdfAccountName(selected ? selected.name : "")
+                      }}
+                      disabled={accountsLoading || isProcessing}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={accountsLoading ? t("Loading accounts...") : t("Select account")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {accountOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.name}
+                            {option.currency ? ` (${option.currency.toUpperCase()})` : ""}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value={CUSTOM_ACCOUNT_VALUE}>{t("Other account")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {accountsError && (
+                      <p className="text-xs text-destructive">{accountsError}</p>
+                    )}
+                  </div>
+                  {pdfAccountSelection === CUSTOM_ACCOUNT_VALUE && (
+                    <div className="space-y-2">
+                      <Label htmlFor="pdf-account-name">{t("Account name")}</Label>
+                      <Input
+                        id="pdf-account-name"
+                        value={pdfAccountName}
+                        onChange={(event) => setPdfAccountName(event.target.value)}
+                        disabled={isProcessing}
+                      />
+                    </div>
+                  )}
                   <p className="text-xs text-muted-foreground">
-                    {t("Transactions imported from this statement will use this account label.")}
+                    {t("Transactions imported from this statement will be assigned to the selected account.")}
                   </p>
                 </div>
               )}
