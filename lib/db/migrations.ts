@@ -13,12 +13,6 @@ import {
 
 let hasRunMigrations = false
 
-function ensureLatestSchema() {
-  ensureAccountCurrencyColumn()
-  ensureTransactionColumns()
-  ensureIndexes()
-}
-
 function ensureIndexes() {
   const db = getDatabase()
   const statements = [
@@ -35,6 +29,37 @@ function ensureIndexes() {
   for (const statement of statements) {
     db.exec(statement)
   }
+}
+
+function ensureRecurringTransactionColumns() {
+  const db = getDatabase()
+  const columns = db.prepare("PRAGMA table_info(recurring_transactions)").all() as Array<{ name: string }>
+  const columnNames = new Set(columns.map((column) => column.name))
+
+  if (!columnNames.has("accountAmount")) {
+    db.exec("ALTER TABLE recurring_transactions ADD COLUMN accountAmount REAL NOT NULL DEFAULT 0")
+    db.exec("UPDATE recurring_transactions SET accountAmount = ABS(amount)")
+  }
+
+  if (!columnNames.has("originalAmount")) {
+    db.exec("ALTER TABLE recurring_transactions ADD COLUMN originalAmount REAL NOT NULL DEFAULT 0")
+    db.exec("UPDATE recurring_transactions SET originalAmount = ABS(amount)")
+  }
+
+  if (!columnNames.has("currency")) {
+    db.exec("ALTER TABLE recurring_transactions ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD'")
+  }
+
+  if (!columnNames.has("exchangeRate")) {
+    db.exec("ALTER TABLE recurring_transactions ADD COLUMN exchangeRate REAL NOT NULL DEFAULT 1")
+  }
+}
+
+function ensureLatestSchema() {
+  ensureAccountCurrencyColumn()
+  ensureTransactionColumns()
+  ensureRecurringTransactionColumns()
+  ensureIndexes()
 }
 
 function ensureAccountCurrencyColumn() {
