@@ -104,6 +104,7 @@ export async function POST(request: NextRequest) {
 
     const transaction = await createTransaction({
       ...parsed.data,
+      amount: parsed.data.amount ?? parsed.data.originalAmount as number,
       categoryName: parsed.data.categoryName ?? "Uncategorized",
     })
     await recordUserAction(session.user, "transaction.create", "transaction", transaction.id, {
