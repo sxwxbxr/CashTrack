@@ -13,6 +13,12 @@ import {
 
 let hasRunMigrations = false
 
+function ensureLatestSchema() {
+  ensureAccountCurrencyColumn()
+  ensureTransactionColumns()
+  ensureIndexes()
+}
+
 function ensureIndexes() {
   const db = getDatabase()
   const statements = [
@@ -73,8 +79,8 @@ function ensureTransactionColumns() {
   }
 }
 
-export function runMigrations(): void {
-  if (hasRunMigrations) {
+export function runMigrations(force = false): void {
+  if (hasRunMigrations && !force) {
     return
   }
 
@@ -95,8 +101,10 @@ export function runMigrations(): void {
     db.exec(statement)
   }
 
-  ensureAccountCurrencyColumn()
-  ensureTransactionColumns()
-  ensureIndexes()
+  ensureLatestSchema()
   hasRunMigrations = true
+}
+
+export function refreshSchema(): void {
+  runMigrations(true)
 }
