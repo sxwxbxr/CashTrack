@@ -21,6 +21,8 @@ cd CashTrack
 npm install
 ```
 
+> Using pnpm instead of npm? After `pnpm install`, run `pnpm approve-builds better-sqlite3` so the native SQLite bindings are compiled on pnpm 9+ before starting the app.
+
 The install step generates PWA icons (via the `postinstall` script) and installs the platform-specific tooling needed for packaging.
 
 ## 2. Configure environment variables
@@ -116,5 +118,6 @@ If you want to ship CashTrack as an installer for family members, follow these s
 | **Service worker caching stale assets** | Hard refresh (Shift + Reload) during development to bust the cache, or clear application storage in your browser dev tools. |
 | **Missing icons after clone** | Run `npm run postinstall` (or `npm install`) to regenerate the PWA icons in `public/icons`. |
 | **TypeScript or lint errors** | Run `npm run lint` and fix the reported issues before packaging a build. |
+| **"Could not locate the bindings file"** | pnpm 9+ skips native builds until you allow them. Run `pnpm approve-builds better-sqlite3` (and reinstall) or `pnpm rebuild better-sqlite3` to compile the SQLite driver for your platform. |
 
 Enjoy maintaining your household finances without depending on any hosted service.
