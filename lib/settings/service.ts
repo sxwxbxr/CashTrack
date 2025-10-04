@@ -286,8 +286,8 @@ function recalculateTransactionAmounts(
   }
 }
 
-export async function getAppSettings(): Promise<AppSettingsPayload> {
-  const rows = await listSettingRows()
+export async function getAppSettings(db?: Database): Promise<AppSettingsPayload> {
+  const rows = await listSettingRows(undefined, db)
   const mapped = mapSettings(rows)
   const baseCurrency = normalizeCurrencyCode(
     ensureString(mapped[SETTING_KEYS.baseCurrency], DEFAULT_SETTINGS.baseCurrency) || DEFAULT_BASE_CURRENCY,
@@ -337,8 +337,12 @@ export async function getAppSettings(): Promise<AppSettingsPayload> {
   return { ...settings, syncHost: resolveSyncHost() }
 }
 
-export async function updateAppSettings(update: UpdateSettingsInput): Promise<AppSettingsPayload> {
-  const current = await getAppSettings()
+export async function updateAppSettings(
+  update: UpdateSettingsInput,
+  options: { db?: Database } = {},
+): Promise<AppSettingsPayload> {
+  const { db } = options
+  const current = await getAppSettings(db)
   const nextBaseCurrency = normalizeCurrencyCode(
     update.baseCurrency ?? current.baseCurrency ?? DEFAULT_BASE_CURRENCY,
   )
@@ -373,65 +377,82 @@ export async function updateAppSettings(update: UpdateSettingsInput): Promise<Ap
     (update.knownCurrencies ?? current.knownCurrencies).concat(Object.keys(nextRates)),
   )
 
-  await withTransaction(async (db) => {
+  const applyUpdates = async (connection: Database) => {
     if (update.allowLanSync !== undefined && update.allowLanSync !== current.allowLanSync) {
-      await setSettingRow(SETTING_KEYS.allowLanSync, update.allowLanSync, { db })
+      await setSettingRow(SETTING_KEYS.allowLanSync, update.allowLanSync, { db: connection })
     }
     if (
       update.allowAutomaticBackups !== undefined &&
       update.allowAutomaticBackups !== current.allowAutomaticBackups
     ) {
-      await setSettingRow(SETTING_KEYS.allowAutomaticBackups, update.allowAutomaticBackups, { db })
+      await setSettingRow(SETTING_KEYS.allowAutomaticBackups, update.allowAutomaticBackups, {
+        db: connection,
+      })
     }
     if (update.autoBackupFrequency && update.autoBackupFrequency !== current.autoBackupFrequency) {
-      await setSettingRow(SETTING_KEYS.autoBackupFrequency, update.autoBackupFrequency, { db })
+      await setSettingRow(SETTING_KEYS.autoBackupFrequency, update.autoBackupFrequency, {
+        db: connection,
+      })
     }
     if (
       update.backupRetentionDays !== undefined &&
       update.backupRetentionDays !== current.backupRetentionDays
     ) {
       const value = Math.max(7, Math.min(365, Math.round(update.backupRetentionDays)))
-      await setSettingRow(SETTING_KEYS.backupRetentionDays, value, { db })
+      await setSettingRow(SETTING_KEYS.backupRetentionDays, value, { db: connection })
     }
     if (update.lastBackupAt !== undefined) {
       await setSettingRow(SETTING_KEYS.lastBackupAt, update.lastBackupAt, {
-        db,
+        db: connection,
         updatedAt: update.lastBackupAt ?? undefined,
       })
     }
     if (update.lastSuccessfulSyncAt !== undefined) {
       await setSettingRow(SETTING_KEYS.lastSuccessfulSyncAt, update.lastSuccessfulSyncAt, {
-        db,
+        db: connection,
         updatedAt: update.lastSuccessfulSyncAt ?? undefined,
       })
     }
 
     if (nextBaseCurrency !== current.baseCurrency) {
-      await setSettingRow(SETTING_KEYS.baseCurrency, nextBaseCurrency, { db })
+      await setSettingRow(SETTING_KEYS.baseCurrency, nextBaseCurrency, { db: connection })
     }
     if (nextDateFormat !== current.dateFormat) {
-      await setSettingRow(SETTING_KEYS.dateFormat, nextDateFormat, { db })
+      await setSettingRow(SETTING_KEYS.dateFormat, nextDateFormat, { db: connection })
     }
     if (nextConversionMode !== current.currencyConversionMode) {
-      await setSettingRow(SETTING_KEYS.currencyConversionMode, nextConversionMode, { db })
+      await setSettingRow(SETTING_KEYS.currencyConversionMode, nextConversionMode, {
+        db: connection,
+      })
     }
     if (nextAllowRateUpdates !== current.allowCurrencyRateUpdates) {
-      await setSettingRow(SETTING_KEYS.allowCurrencyRateUpdates, nextAllowRateUpdates, { db })
+      await setSettingRow(SETTING_KEYS.allowCurrencyRateUpdates, nextAllowRateUpdates, {
+        db: connection,
+      })
     }
 
-    await setSettingRow(SETTING_KEYS.currencyRates, nextRates, { db })
-    await setSettingRow(SETTING_KEYS.knownCurrencies, nextKnown, { db })
+    await setSettingRow(SETTING_KEYS.currencyRates, nextRates, { db: connection })
+    await setSettingRow(SETTING_KEYS.knownCurrencies, nextKnown, { db: connection })
 
     if (ratesUpdatedAt !== undefined && ratesUpdatedAt !== current.currencyRatesUpdatedAt) {
       await setSettingRow(SETTING_KEYS.currencyRatesUpdatedAt, ratesUpdatedAt, {
-        db,
+        db: connection,
         updatedAt: ratesUpdatedAt ?? undefined,
       })
     }
 
     if (shouldRecalculate) {
-      recalculateTransactionAmounts(db, nextBaseCurrency, nextRates)
+      recalculateTransactionAmounts(connection, nextBaseCurrency, nextRates)
     }
+  }
+
+  if (db) {
+    await applyUpdates(db)
+    return getAppSettings(db)
+  }
+
+  await withTransaction(async (connection) => {
+    await applyUpdates(connection)
   })
 
   return getAppSettings()
@@ -476,31 +497,37 @@ function shouldAttemptRateRefresh(settings: AppSettings, desiredCurrencies: stri
   return false
 }
 
-export async function ensureFreshCurrencyRates(options: RefreshOptions = {}): Promise<AppSettingsPayload> {
-  const current = await getAppSettings()
+export async function ensureFreshCurrencyRates(
+  options: RefreshOptions & { db?: Database } = {},
+): Promise<AppSettingsPayload> {
+  const { db, ...rest } = options
+  const current = await getAppSettings(db)
   const desired = ensureKnownCurrencies(
     current.baseCurrency,
-    current.knownCurrencies.concat(options.currencies ?? []),
+    current.knownCurrencies.concat(rest.currencies ?? []),
   )
 
-  if (!shouldAttemptRateRefresh(current, desired, options.force)) {
+  if (!shouldAttemptRateRefresh(current, desired, rest.force)) {
     if (desired.length !== current.knownCurrencies.length) {
-      return updateAppSettings({ knownCurrencies: desired })
+      return updateAppSettings({ knownCurrencies: desired }, { db })
     }
     return current
   }
 
   try {
     const { rates, fetchedAt } = await retryFetchLiveRates(current.baseCurrency, desired)
-    return updateAppSettings({
-      currencyRates: rates,
-      currencyRatesUpdatedAt: fetchedAt,
-      knownCurrencies: desired,
-    })
+    return updateAppSettings(
+      {
+        currencyRates: rates,
+        currencyRatesUpdatedAt: fetchedAt,
+        knownCurrencies: desired,
+      },
+      { db },
+    )
   } catch (error) {
     console.warn("Unable to refresh exchange rates", error)
     if (desired.length !== current.knownCurrencies.length) {
-      return updateAppSettings({ knownCurrencies: desired })
+      return updateAppSettings({ knownCurrencies: desired }, { db })
     }
     return current
   }
@@ -508,15 +535,18 @@ export async function ensureFreshCurrencyRates(options: RefreshOptions = {}): Pr
 
 export const SETTINGS_KEYS_MAP = SETTING_KEYS
 
-export async function ensureCurrencyTracked(currency: string): Promise<void> {
+export async function ensureCurrencyTracked(
+  currency: string,
+  options: { db?: Database } = {},
+): Promise<void> {
   const normalized = normalizeCurrencyCode(currency)
   if (!normalized) {
     return
   }
-  const settings = await getAppSettings()
+  const settings = await getAppSettings(options.db)
   if (settings.knownCurrencies.includes(normalized)) {
     if (!settings.currencyRates[normalized]) {
-      await ensureFreshCurrencyRates({ currencies: [normalized], force: true })
+      await ensureFreshCurrencyRates({ currencies: [normalized], force: true, db: options.db })
     }
     return
   }
@@ -524,6 +554,6 @@ export async function ensureCurrencyTracked(currency: string): Promise<void> {
     ...settings.knownCurrencies,
     normalized,
   ])
-  await updateAppSettings({ knownCurrencies: updatedKnown })
-  await ensureFreshCurrencyRates({ currencies: [normalized], force: true })
+  await updateAppSettings({ knownCurrencies: updatedKnown }, { db: options.db })
+  await ensureFreshCurrencyRates({ currencies: [normalized], force: true, db: options.db })
 }

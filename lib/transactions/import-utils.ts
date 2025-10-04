@@ -125,6 +125,7 @@ export function parseCsvTransactions(content: string, mapping: CsvMapping) {
       const transactionType: TransactionType = amount >= 0 ? "income" : "expense"
 
       const parsed: ParsedCsvTransaction = {
+        sourceId: `csv-${lineNumber}`,
         date,
         description: descriptionValue,
         amount: Math.abs(amount),
@@ -181,6 +182,7 @@ export function parseCsvTransactions(content: string, mapping: CsvMapping) {
         }
       }
 
+      parsed.sourceLine = lineNumber
       transactions.push(parsed)
     } catch (error) {
       errors.push({ line: lineNumber, message: (error as Error).message })
