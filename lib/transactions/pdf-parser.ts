@@ -372,6 +372,7 @@ function parseRaiffeisenStatement(
 ): { transactions: ParsedCsvTransaction[]; errors: Array<{ line: number; message: string }> } {
   const transactions: ParsedCsvTransaction[] = []
   const errors: Array<{ line: number; message: string }> = []
+  let entryCounter = 0
   let previousBalanceCents: number | undefined
   let currentEntry: RaiffeisenEntry | null = null
 
@@ -508,12 +509,16 @@ function parseRaiffeisenStatement(
     }
 
     const type: TransactionType = resolvedAmountCents >= 0 ? "income" : "expense"
+    entryCounter += 1
+    const sourceLine = currentEntry?.lineNumber
     transactions.push({
+      sourceId: `pdf-${sourceLine ?? entryCounter}`,
       date: normalizedDate,
       description: description || "Statement entry",
       amount: Math.abs(resolvedAmountCents) / 100,
       type,
       account,
+      sourceLine,
     })
 
     currentEntry = null
@@ -587,6 +592,7 @@ export async function parsePdfTransactions(
 
   let currentEntry: PendingEntry | null = null
   let previousBalanceCents: number | undefined
+  let entryCounter = 0
 
   const finalizeCurrentEntry = () => {
     if (!currentEntry) {
@@ -702,12 +708,17 @@ export async function parsePdfTransactions(
     const resolvedAmount = resolvedAmountCents / 100
     const type: TransactionType = resolvedAmount >= 0 ? "income" : "expense"
 
+    entryCounter += 1
+    const sourceLine = currentEntry?.lineNumber
+
     transactions.push({
+      sourceId: `pdf-${sourceLine ?? entryCounter}`,
       date: currentEntry.date,
       description: description || "Statement entry",
       amount: Math.abs(resolvedAmount),
       type,
       account,
+      sourceLine,
     })
 
     currentEntry = null

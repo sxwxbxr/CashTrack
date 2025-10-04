@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -13,9 +13,15 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Textarea } from "@/components/ui/textarea"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Badge } from "@/components/ui/badge"
 import { FileText, CheckCircle, Loader2, AlertTriangle } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import type { TransactionType } from "@/lib/transactions/types"
+import type { ParsedCsvTransaction, TransactionStatus, TransactionType } from "@/lib/transactions/types"
+import { cn } from "@/lib/utils"
 import { useTranslations } from "@/components/language-provider"
 
 interface TransactionImportDialogProps {
@@ -37,15 +43,45 @@ type ColumnMapping = {
   notes?: string
 }
 
-interface PreviewTransaction {
+type DuplicateMatchReason = "amount" | "description"
+
+interface DuplicatePreview {
+  id: string
   date: string
   description: string
   amount: number
-  categoryName?: string
-  account?: string
-  status?: string
+  accountAmount: number
+  originalAmount: number
+  currency: string
+  account: string
+  status: TransactionStatus
   type: TransactionType
-  notes?: string
+  matchReasons: DuplicateMatchReason[]
+}
+
+interface PreviewTransaction {
+  id: string
+  sourceId: string
+  date: string
+  description: string
+  amount: number
+  categoryId: string | null
+  categoryName: string | null
+  account: string | null
+  status: TransactionStatus
+  type: TransactionType
+  notes: string | null
+  originalAmount: number | null
+  accountAmount: number | null
+  currency: string | null
+  exchangeRate: number | null
+  sourceLine: number | null
+  duplicates: DuplicatePreview[]
+}
+
+interface EditableTransaction extends PreviewTransaction {
+  include: boolean
+  decision: "import" | "skip" | "pending"
 }
 
 interface ImportPreviewResponse {
@@ -67,6 +103,9 @@ type AccountOption = {
   name: string
   currency?: string | null
 }
+
+const STATUS_OPTIONS: TransactionStatus[] = ["pending", "completed", "cleared"]
+const TYPE_OPTIONS: TransactionType[] = ["income", "expense", "transfer"]
 
 const parseHeader = (content: string): string[] => {
   const [firstLine] = content.split(/\r?\n/, 1)
@@ -108,6 +147,8 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
   const [availableColumns, setAvailableColumns] = useState<string[]>([])
   const [mapping, setMapping] = useState<ColumnMapping>({ date: "", description: "", amount: "" })
   const [preview, setPreview] = useState<PreviewTransaction[]>([])
+  const [initialPreviewMap, setInitialPreviewMap] = useState<Record<string, PreviewTransaction>>({})
+  const [drafts, setDrafts] = useState<EditableTransaction[]>([])
   const [previewTotal, setPreviewTotal] = useState(0)
   const [previewErrors, setPreviewErrors] = useState<Array<{ line: number; message: string }>>([])
   const [result, setResult] = useState<ImportResult | null>(null)
@@ -126,6 +167,185 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
     amount: mapping.amount,
   }), [mapping])
 
+  const includedCount = useMemo(() => drafts.filter((draft) => draft.include).length, [drafts])
+  const hasPendingDuplicates = useMemo(
+    () =>
+      drafts.some(
+        (draft) =>
+          draft.include && computeActiveDuplicates(draft).length > 0 && draft.decision === "pending",
+      ),
+    [computeActiveDuplicates, drafts],
+  )
+
+  const computeActiveDuplicates = useCallback(
+    (transaction: EditableTransaction) => {
+      if (!transaction.duplicates.length) {
+        return [] as DuplicatePreview[]
+      }
+
+      const normalizedDescription = transaction.description.trim().toLowerCase()
+      const signedAmount =
+        transaction.type === "expense" ? -Math.abs(transaction.amount) : Math.abs(transaction.amount)
+      const accountAmountCandidate =
+        typeof transaction.accountAmount === "number"
+          ? transaction.type === "expense"
+            ? -Math.abs(transaction.accountAmount)
+            : Math.abs(transaction.accountAmount)
+          : null
+      const originalAmountCandidate =
+        typeof transaction.originalAmount === "number" ? Math.abs(transaction.originalAmount) : null
+
+      return transaction.duplicates.filter((candidate) => {
+        const checks: boolean[] = []
+
+        if (candidate.matchReasons.includes("description")) {
+          checks.push(normalizedDescription === candidate.description.trim().toLowerCase())
+        }
+
+        if (candidate.matchReasons.includes("amount")) {
+          const amountMatch = Math.abs(candidate.amount - signedAmount) <= 0.01
+          const accountMatch =
+            accountAmountCandidate !== null
+              ? Math.abs(Math.abs(candidate.accountAmount) - Math.abs(accountAmountCandidate)) <= 0.01
+              : false
+          const originalMatch =
+            originalAmountCandidate !== null
+              ? Math.abs(Math.abs(candidate.originalAmount) - originalAmountCandidate) <= 0.01
+              : false
+          checks.push(amountMatch || accountMatch || originalMatch)
+        }
+
+        return checks.length === 0 ? false : checks.some(Boolean)
+      })
+    },
+    [],
+  )
+
+  const updateDraft = useCallback(
+    (sourceId: string, updater: (draft: EditableTransaction) => EditableTransaction) => {
+      setDrafts((current) =>
+        current.map((item) => {
+          if (item.sourceId !== sourceId) {
+            return item
+          }
+          const next = updater(item)
+          const activeDuplicates = computeActiveDuplicates(next)
+          if (activeDuplicates.length === 0 && next.decision === "pending") {
+            return { ...next, decision: "import" }
+          }
+          return next
+        }),
+      )
+    },
+    [computeActiveDuplicates],
+  )
+
+  const applyPreviewResponse = useCallback((previewResponse: ImportPreviewResponse) => {
+    setError(null)
+    setResult(null)
+    setPreview(previewResponse.preview)
+    setPreviewTotal(previewResponse.total)
+    setPreviewErrors(previewResponse.errors)
+    const previewMap: Record<string, PreviewTransaction> = {}
+    previewResponse.preview.forEach((item) => {
+      previewMap[item.sourceId] = item
+    })
+    setInitialPreviewMap(previewMap)
+    setDrafts(
+      previewResponse.preview.map((item) => ({
+        ...item,
+        include: true,
+        decision: item.duplicates.length > 0 ? "pending" : "import",
+      })),
+    )
+  }, [])
+
+  const buildOverridePayload = useCallback(() => {
+    const overrides: Record<string, Partial<ParsedCsvTransaction>> = {}
+    drafts.forEach((draft) => {
+      const original = initialPreviewMap[draft.sourceId]
+      if (!original) {
+        return
+      }
+      const patch: Partial<ParsedCsvTransaction> = {}
+      if (draft.date !== original.date) {
+        patch.date = draft.date
+      }
+      if (draft.description !== original.description) {
+        patch.description = draft.description
+      }
+      if (draft.amount !== original.amount) {
+        patch.amount = draft.amount
+      }
+      const currentCategoryName = draft.categoryName ?? ""
+      const originalCategoryName = original.categoryName ?? ""
+      if (currentCategoryName !== originalCategoryName) {
+        patch.categoryName = currentCategoryName
+      }
+      const currentAccount = draft.account ?? ""
+      const originalAccount = original.account ?? ""
+      if (currentAccount !== originalAccount) {
+        patch.account = currentAccount
+      }
+      if (draft.status !== original.status) {
+        patch.status = draft.status
+      }
+      if (draft.type !== original.type) {
+        patch.type = draft.type
+      }
+      const normalizedNotes = draft.notes ?? null
+      const originalNotes = original.notes ?? null
+      if (normalizedNotes !== originalNotes) {
+        patch.notes = normalizedNotes
+      }
+      if ((draft.originalAmount ?? null) !== (original.originalAmount ?? null)) {
+        patch.originalAmount = draft.originalAmount ?? null
+      }
+      if ((draft.accountAmount ?? null) !== (original.accountAmount ?? null)) {
+        patch.accountAmount = draft.accountAmount ?? null
+      }
+      const currentCurrency = draft.currency ?? ""
+      const originalCurrency = original.currency ?? ""
+      if (currentCurrency !== originalCurrency) {
+        patch.currency = currentCurrency
+      }
+      if ((draft.exchangeRate ?? null) !== (original.exchangeRate ?? null)) {
+        patch.exchangeRate = draft.exchangeRate ?? null
+      }
+      if (Object.keys(patch).length > 0) {
+        overrides[draft.sourceId] = patch
+      }
+    })
+    return overrides
+  }, [drafts, initialPreviewMap])
+
+  const buildSelectionPayload = useCallback(() => {
+    const selections: Record<string, boolean> = {}
+    drafts.forEach((draft) => {
+      if (!draft.include) {
+        selections[draft.sourceId] = false
+      }
+    })
+    return selections
+  }, [drafts])
+
+  const buildDuplicateDecisionPayload = useCallback(() => {
+    const decisions: Record<string, "import" | "skip"> = {}
+    drafts.forEach((draft) => {
+      if (!draft.include) {
+        return
+      }
+      const activeDuplicates = computeActiveDuplicates(draft)
+      if (!activeDuplicates.length) {
+        return
+      }
+      if (draft.decision === "import" || draft.decision === "skip") {
+        decisions[draft.sourceId] = draft.decision
+      }
+    })
+    return decisions
+  }, [computeActiveDuplicates, drafts])
+
   useEffect(() => {
     if (!open) {
       setStep("upload")
@@ -134,6 +354,8 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
       setAvailableColumns([])
       setMapping({ date: "", description: "", amount: "" })
       setPreview([])
+      setInitialPreviewMap({})
+      setDrafts([])
       setPreviewTotal(0)
       setPreviewErrors([])
       setResult(null)
@@ -293,6 +515,21 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
       formData.append("mapping", JSON.stringify(payload))
     }
 
+    if (!dryRun) {
+      const overrides = buildOverridePayload()
+      const selections = buildSelectionPayload()
+      const duplicateDecisions = buildDuplicateDecisionPayload()
+      if (Object.keys(overrides).length > 0) {
+        formData.append("overrides", JSON.stringify(overrides))
+      }
+      if (Object.keys(selections).length > 0) {
+        formData.append("selections", JSON.stringify(selections))
+      }
+      if (Object.keys(duplicateDecisions).length > 0) {
+        formData.append("duplicateDecisions", JSON.stringify(duplicateDecisions))
+      }
+    }
+
     const response = await fetch("/api/transactions/import", {
       method: "POST",
       body: formData,
@@ -327,9 +564,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
         try {
           setIsProcessing(true)
           const previewResponse = (await submitImport(true)) as ImportPreviewResponse
-          setPreview(previewResponse.preview)
-          setPreviewTotal(previewResponse.total)
-          setPreviewErrors(previewResponse.errors)
+          applyPreviewResponse(previewResponse)
           setStep("preview")
         } catch (submitError) {
           setError(submitError instanceof Error ? submitError.message : t("Failed to process file"))
@@ -351,9 +586,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
       try {
         setIsProcessing(true)
         const previewResponse = (await submitImport(true)) as ImportPreviewResponse
-        setPreview(previewResponse.preview)
-        setPreviewTotal(previewResponse.total)
-        setPreviewErrors(previewResponse.errors)
+        applyPreviewResponse(previewResponse)
         setStep("preview")
       } catch (submitError) {
         setError(submitError instanceof Error ? submitError.message : t("Failed to process file"))
@@ -363,6 +596,18 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
     }
 
     if (step === "preview") {
+      const unresolved = drafts.filter((draft) => {
+        if (!draft.include) {
+          return false
+        }
+        const active = computeActiveDuplicates(draft)
+        return active.length > 0 && draft.decision === "pending"
+      })
+      if (unresolved.length > 0) {
+        setError(t("Review duplicate matches before importing"))
+        return
+      }
+
       try {
         setIsProcessing(true)
         const importResponse = (await submitImport(false)) as ImportResult
@@ -395,7 +640,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[640px]">
+      <DialogContent className="sm:max-w-[960px] max-h-[90vh] overflow-hidden">
         <DialogHeader>
           <DialogTitle>{t("Import Transactions")}</DialogTitle>
           <DialogDescription>
@@ -538,37 +783,331 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
 
           {step === "preview" && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <h3 className="font-semibold">{t("Preview Transactions")}</h3>
+                  <h3 className="font-semibold">{t("Review transactions")}</h3>
                   <p className="text-sm text-muted-foreground">
-                    {t("Showing first {{visible}} of {{total}} rows", {
-                      values: { visible: preview.length.toString(), total: previewTotal.toString() },
+                    {t("{{selected}} of {{total}} transactions selected", {
+                      values: {
+                        selected: includedCount.toString(),
+                        total: previewTotal.toString(),
+                      },
                     })}
                   </p>
                 </div>
                 {isProcessing && <Loader2 className="h-4 w-4 animate-spin" />}
               </div>
-              <div className="rounded-md border">
-                <div className="space-y-2 p-4">
-                  {preview.map((transaction, index) => (
-                    <div key={index} className="flex flex-wrap items-center justify-between gap-2 border-b py-2 last:border-b-0">
-                      <div>
-                        <p className="font-medium">{transaction.description}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {transaction.date} • {transaction.categoryName ?? t("Uncategorized")}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className={transaction.type === "income" ? "text-sm font-semibold text-green-600" : "text-sm font-semibold text-red-600"}>
-                          {transaction.type === "income" ? "+" : "-"}${Math.abs(transaction.amount).toFixed(2)}
-                        </p>
-                        {transaction.account && <p className="text-xs text-muted-foreground">{transaction.account}</p>}
-                      </div>
-                    </div>
-                  ))}
+              {drafts.length > 0 ? (
+                <ScrollArea className="max-h-[60vh] rounded-md border">
+                  <div className="space-y-3 p-4">
+                    {drafts.map((draft) => {
+                      const activeDuplicates = computeActiveDuplicates(draft)
+                      const requiresDecision = draft.include && activeDuplicates.length > 0 && draft.decision === "pending"
+                      const amountDisplay = `${draft.type === "income" ? "+" : draft.type === "expense" ? "-" : ""}${Math.abs(draft.amount).toFixed(2)}`
+                      return (
+                        <div
+                          key={draft.sourceId}
+                          className={cn(
+                            "space-y-4 rounded-md border p-4 transition-colors",
+                            !draft.include && "opacity-60",
+                            requiresDecision
+                              ? "border-amber-500 bg-amber-50 dark:border-amber-400 dark:bg-amber-950"
+                              : "bg-background",
+                          )}
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="flex items-start gap-3">
+                              <Checkbox
+                                checked={draft.include}
+                                onCheckedChange={(checked) => {
+                                  updateDraft(draft.sourceId, (current) => {
+                                    const include = Boolean(checked)
+                                    if (!include) {
+                                      return { ...current, include: false, decision: "skip" }
+                                    }
+                                    const duplicates = computeActiveDuplicates(current)
+                                    return {
+                                      ...current,
+                                      include: true,
+                                      decision:
+                                        duplicates.length > 0
+                                          ? current.decision === "skip"
+                                            ? "skip"
+                                            : "pending"
+                                          : "import",
+                                    }
+                                  })
+                                }}
+                              />
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="font-medium">
+                                    {draft.description || t("Untitled transaction")}
+                                  </p>
+                                  {requiresDecision && (
+                                    <Badge variant="outline" className="border-amber-500 text-amber-700 dark:border-amber-400 dark:text-amber-200">
+                                      {t("Action required")}
+                                    </Badge>
+                                  )}
+                                  {!draft.include && (
+                                    <Badge variant="secondary">{t("Excluded")}</Badge>
+                                  )}
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  {draft.date}
+                                  {draft.account ? ` • ${draft.account}` : ""}
+                                  {draft.categoryName ? ` • ${draft.categoryName}` : ""}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p
+                                className={cn(
+                                  "text-sm font-semibold",
+                                  draft.type === "income"
+                                    ? "text-emerald-600"
+                                    : draft.type === "expense"
+                                    ? "text-red-600"
+                                    : "text-muted-foreground",
+                                )}
+                              >
+                                {amountDisplay}
+                              </p>
+                              {activeDuplicates.length > 0 && draft.include && (
+                                <p className="text-xs text-amber-600 dark:text-amber-300">
+                                  {activeDuplicates.length === 1
+                                    ? t("1 potential duplicate")
+                                    : t("{{count}} potential duplicates", {
+                                        values: { count: activeDuplicates.length.toString() },
+                                      })}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="grid gap-4 md:grid-cols-3">
+                            <div className="space-y-2">
+                              <Label htmlFor={`date-${draft.sourceId}`}>{t("Date")}</Label>
+                              <Input
+                                id={`date-${draft.sourceId}`}
+                                type="date"
+                                value={draft.date}
+                                onChange={(event) =>
+                                  updateDraft(draft.sourceId, (current) => ({
+                                    ...current,
+                                    date: event.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="space-y-2 md:col-span-2">
+                              <Label htmlFor={`description-${draft.sourceId}`}>{t("Description")}</Label>
+                              <Input
+                                id={`description-${draft.sourceId}`}
+                                value={draft.description}
+                                onChange={(event) =>
+                                  updateDraft(draft.sourceId, (current) => ({
+                                    ...current,
+                                    description: event.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor={`amount-${draft.sourceId}`}>{t("Amount")}</Label>
+                              <Input
+                                id={`amount-${draft.sourceId}`}
+                                type="number"
+                                step="0.01"
+                                value={draft.amount}
+                                onChange={(event) => {
+                                  const value = Number(event.target.value)
+                                  updateDraft(draft.sourceId, (current) => ({
+                                    ...current,
+                                    amount: Number.isFinite(value) ? Math.abs(value) : current.amount,
+                                  }))
+                                }}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>{t("Type")}</Label>
+                              <Select
+                                value={draft.type}
+                                onValueChange={(value: TransactionType) =>
+                                  updateDraft(draft.sourceId, (current) => ({
+                                    ...current,
+                                    type: value,
+                                  }))
+                                }
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {TYPE_OPTIONS.map((option) => (
+                                    <SelectItem key={option} value={option}>
+                                      {t(option.charAt(0).toUpperCase() + option.slice(1))}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label>{t("Status")}</Label>
+                              <Select
+                                value={draft.status}
+                                onValueChange={(value: TransactionStatus) =>
+                                  updateDraft(draft.sourceId, (current) => ({
+                                    ...current,
+                                    status: value,
+                                  }))
+                                }
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {STATUS_OPTIONS.map((option) => (
+                                    <SelectItem key={option} value={option}>
+                                      {t(option.charAt(0).toUpperCase() + option.slice(1))}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor={`account-${draft.sourceId}`}>{t("Account")}</Label>
+                              <Input
+                                id={`account-${draft.sourceId}`}
+                                value={draft.account ?? ""}
+                                onChange={(event) =>
+                                  updateDraft(draft.sourceId, (current) => ({
+                                    ...current,
+                                    account: event.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor={`category-${draft.sourceId}`}>{t("Category")}</Label>
+                              <Input
+                                id={`category-${draft.sourceId}`}
+                                value={draft.categoryName ?? ""}
+                                onChange={(event) =>
+                                  updateDraft(draft.sourceId, (current) => ({
+                                    ...current,
+                                    categoryName: event.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor={`currency-${draft.sourceId}`}>{t("Currency")}</Label>
+                              <Input
+                                id={`currency-${draft.sourceId}`}
+                                value={draft.currency ?? ""}
+                                placeholder={t("Optional")}
+                                onChange={(event) =>
+                                  updateDraft(draft.sourceId, (current) => ({
+                                    ...current,
+                                    currency: event.target.value.toUpperCase(),
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="space-y-2 md:col-span-3">
+                              <Label htmlFor={`notes-${draft.sourceId}`}>{t("Notes")}</Label>
+                              <Textarea
+                                id={`notes-${draft.sourceId}`}
+                                value={draft.notes ?? ""}
+                                placeholder={t("Optional")}
+                                onChange={(event) => {
+                                  const value = event.target.value
+                                  updateDraft(draft.sourceId, (current) => ({
+                                    ...current,
+                                    notes: value ? value : null,
+                                  }))
+                                }}
+                              />
+                            </div>
+                          </div>
+                          {draft.duplicates.length > 0 && (
+                            <div
+                              className={cn(
+                                "rounded-md border p-3 text-sm",
+                                activeDuplicates.length > 0
+                                  ? "border-amber-400 bg-amber-50 text-amber-900 dark:border-amber-500/60 dark:bg-amber-950/40 dark:text-amber-100"
+                                  : "border-muted bg-muted/30 text-muted-foreground",
+                              )}
+                            >
+                              {activeDuplicates.length > 0 ? (
+                                <div className="space-y-3">
+                                  <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <p className="font-medium">{t("Possible duplicates detected")}</p>
+                                    <RadioGroup
+                                      value={draft.decision === "pending" ? "" : draft.decision}
+                                      onValueChange={(value) =>
+                                        updateDraft(draft.sourceId, (current) => ({
+                                          ...current,
+                                          decision: value === "import" || value === "skip" ? (value as "import" | "skip") : current.decision,
+                                        }))
+                                      }
+                                      className="flex flex-wrap gap-4"
+                                    >
+                                      <div className="flex items-center space-x-2">
+                                        <RadioGroupItem value="import" id={`duplicate-import-${draft.sourceId}`} />
+                                        <Label htmlFor={`duplicate-import-${draft.sourceId}`} className="text-xs">
+                                          {t("Import anyway")}
+                                        </Label>
+                                      </div>
+                                      <div className="flex items-center space-x-2">
+                                        <RadioGroupItem value="skip" id={`duplicate-skip-${draft.sourceId}`} />
+                                        <Label htmlFor={`duplicate-skip-${draft.sourceId}`} className="text-xs">
+                                          {t("Skip new transaction")}
+                                        </Label>
+                                      </div>
+                                    </RadioGroup>
+                                  </div>
+                                  <div className="space-y-2 text-xs">
+                                    {activeDuplicates.map((candidate) => (
+                                      <div
+                                        key={candidate.id}
+                                        className="flex flex-wrap items-center justify-between gap-3 rounded border border-amber-200 bg-white/60 p-2 dark:border-amber-900 dark:bg-transparent"
+                                      >
+                                        <div>
+                                          <p className="font-medium">{candidate.description}</p>
+                                          <p className="text-[11px] text-muted-foreground">
+                                            {candidate.date} • {candidate.account}
+                                          </p>
+                                        </div>
+                                        <div className="text-right">
+                                          <p className="text-sm font-semibold">{candidate.amount.toFixed(2)}</p>
+                                          <div className="mt-1 flex flex-wrap gap-1">
+                                            {candidate.matchReasons.map((reason, index) => (
+                                              <Badge key={`${candidate.id}-${reason}-${index}`} variant="outline">
+                                                {reason === "amount" ? t("Amount match") : t("Description match")}
+                                              </Badge>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="text-xs">{t("No duplicate matches after your edits.")}</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </ScrollArea>
+              ) : (
+                <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  {t("No transactions detected in this file.")}
                 </div>
-              </div>
+              )}
               {previewErrors.length > 0 && (
                 <Card>
                   <CardHeader>
@@ -635,7 +1174,14 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
               <Button variant="outline" onClick={handleClose} disabled={isProcessing}>
                 {t("Cancel")}
               </Button>
-              <Button onClick={handleNext} disabled={isProcessing || (step === "upload" && !selectedFile)}>
+              <Button
+                onClick={handleNext}
+                disabled={
+                  isProcessing ||
+                  (step === "upload" && !selectedFile) ||
+                  (step === "preview" && hasPendingDuplicates)
+                }
+              >
                 {isProcessing ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />

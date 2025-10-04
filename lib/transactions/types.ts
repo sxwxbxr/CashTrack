@@ -85,6 +85,7 @@ export interface UpdateTransactionInput {
 }
 
 export interface ParsedCsvTransaction {
+  sourceId: string
   date: string
   description: string
   amount: number
@@ -98,6 +99,7 @@ export interface ParsedCsvTransaction {
   accountAmount?: number
   currency?: string
   exchangeRate?: number
+  sourceLine?: number
 }
 
 export interface CreateTransferInput {

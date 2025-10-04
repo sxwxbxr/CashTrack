@@ -77,6 +77,20 @@ const ORDERABLE_FIELDS: Record<string, TransactionQueryOptions["orderBy"]> = {
   description: "description",
 }
 
+export interface DuplicateCandidate {
+  id: string
+  date: string
+  description: string
+  amount: number
+  accountAmount: number
+  originalAmount: number
+  currency: string
+  account: string
+  status: TransactionStatus
+  type: TransactionType
+  matchReasons: Array<"amount" | "description">
+}
+
 function applyAmount(amount: number, type: TransactionType): number {
   if (type === "expense") {
     return -Math.abs(amount)
@@ -161,8 +175,8 @@ async function resolveTransactionAmounts(
   }
 
   const requiredCurrencies = ensureKnownCurrencies(baseCurrency, [transactionCurrency, accountCurrency])
-  await Promise.all(requiredCurrencies.map((code) => ensureCurrencyTracked(code)))
-  settings = await ensureFreshCurrencyRates({ currencies: requiredCurrencies })
+  await Promise.all(requiredCurrencies.map((code) => ensureCurrencyTracked(code, { db })))
+  settings = await ensureFreshCurrencyRates({ currencies: requiredCurrencies, db })
 
   const rates = settings.currencyRates
   const rawOriginal =
@@ -765,8 +779,8 @@ export async function createTransfer(
       const fromCurrency = normalizeCurrencyCode(fromAccount.currency || baseCurrency)
       const toCurrency = normalizeCurrencyCode(toAccount.currency || baseCurrency)
       const requiredCurrencies = ensureKnownCurrencies(baseCurrency, [fromCurrency, toCurrency])
-      await Promise.all(requiredCurrencies.map((code) => ensureCurrencyTracked(code)))
-      settings = await ensureFreshCurrencyRates({ currencies: requiredCurrencies })
+      await Promise.all(requiredCurrencies.map((code) => ensureCurrencyTracked(code, { db })))
+      settings = await ensureFreshCurrencyRates({ currencies: requiredCurrencies, db })
 
       const normalizedAmount = roundAmount(Math.abs(amount), 2)
       const outgoingExchangeRate = resolveExchangeRate(fromCurrency, baseCurrency, settings.currencyRates)
@@ -892,6 +906,126 @@ export async function deleteRecurringTransaction(id: string): Promise<void> {
 }
 
 export { parseCsvTransactions, parseCsv } from "@/lib/transactions/import-utils"
+
+export async function findPotentialDuplicateTransactions(
+  transactionsToImport: ParsedCsvTransaction[],
+  db?: Database,
+): Promise<Map<string, DuplicateCandidate[]>> {
+  if (transactionsToImport.length === 0) {
+    return new Map()
+  }
+
+  const uniqueDates = Array.from(
+    new Set(
+      transactionsToImport
+        .map((entry) => entry.date)
+        .filter((date): date is string => typeof date === "string" && date.length > 0),
+    ),
+  ).sort()
+
+  if (uniqueDates.length === 0) {
+    return new Map()
+  }
+
+  const startDate = uniqueDates[0]
+  const endDate = uniqueDates[uniqueDates.length - 1]
+
+  const computeMatches = async (connection?: Database) => {
+    const existing = await listTransactionRecords(
+      { startDate, endDate },
+      { orderBy: "date", orderDirection: "asc" },
+      connection,
+    )
+
+    const transactionsByDate = new Map<string, Transaction[]>()
+    for (const transaction of existing) {
+      const bucket = transactionsByDate.get(transaction.date)
+      if (bucket) {
+        bucket.push(transaction)
+      } else {
+        transactionsByDate.set(transaction.date, [transaction])
+      }
+    }
+
+    const result = new Map<string, DuplicateCandidate[]>()
+
+    for (const entry of transactionsToImport) {
+      const sameDay = transactionsByDate.get(entry.date)
+      if (!sameDay?.length) {
+        continue
+      }
+
+      const normalizedDescription = entry.description.trim().toLowerCase()
+      const type = resolveType(entry.type)
+      const rawOriginal =
+        typeof entry.originalAmount === "number" ? entry.originalAmount : Number(entry.amount) || 0
+      const baseAmountCandidate = applyAmount(Math.abs(rawOriginal), type)
+      const accountAmountCandidate =
+        typeof entry.accountAmount === "number"
+          ? applyAmount(Math.abs(entry.accountAmount), type)
+          : null
+      const originalAmountCandidate =
+        typeof entry.originalAmount === "number" ? Math.abs(entry.originalAmount) : null
+      const normalizedAccount = entry.account?.trim().toLowerCase() ?? null
+
+      for (const transaction of sameDay) {
+        const accountMatches =
+          !normalizedAccount || transaction.account.trim().toLowerCase() === normalizedAccount
+        if (!accountMatches) {
+          continue
+        }
+
+        const existingDescription = transaction.description.trim().toLowerCase()
+        const descriptionMatch =
+          normalizedDescription.length > 0 && existingDescription === normalizedDescription
+
+        const amountMatch =
+          (Number.isFinite(baseAmountCandidate) &&
+            Math.abs(transaction.amount - baseAmountCandidate) <= 0.01) ||
+          (accountAmountCandidate !== null &&
+            Math.abs(Math.abs(transaction.accountAmount) - Math.abs(accountAmountCandidate)) <= 0.01) ||
+          (originalAmountCandidate !== null &&
+            Math.abs(Math.abs(transaction.originalAmount) - originalAmountCandidate) <= 0.01)
+
+        if (!descriptionMatch && !amountMatch) {
+          continue
+        }
+
+        const reasons: Array<"amount" | "description"> = []
+        if (amountMatch) {
+          reasons.push("amount")
+        }
+        if (descriptionMatch) {
+          reasons.push("description")
+        }
+
+        const bucket = result.get(entry.sourceId) ?? []
+        bucket.push({
+          id: transaction.id,
+          date: transaction.date,
+          description: transaction.description,
+          amount: transaction.amount,
+          accountAmount: transaction.accountAmount,
+          originalAmount: transaction.originalAmount,
+          currency: transaction.currency,
+          account: transaction.account,
+          status: transaction.status,
+          type: transaction.type,
+          matchReasons: reasons,
+        })
+        result.set(entry.sourceId, bucket)
+      }
+    }
+
+    return result
+  }
+
+  if (db) {
+    return computeMatches(db)
+  }
+
+  return runWithDatabase(() => computeMatches())
+}
 
 export async function importTransactions(transactionsToImport: ParsedCsvTransaction[]) {
   return runWithDatabase(() =>

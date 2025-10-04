@@ -1,10 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTheme } from "next-themes"
 import { formatDistanceToNow } from "date-fns"
 import { toast } from "sonner"
-import { Loader2 } from "lucide-react"
+import { Loader2, X } from "lucide-react"
 
 import { AppLayout } from "@/components/app-layout"
 import { Button } from "@/components/ui/button"
@@ -164,6 +164,21 @@ export default function SettingsPage() {
   const [activityLoading, setActivityLoading] = useState(false)
   const [activityError, setActivityError] = useState<string | null>(null)
   const isHouseholdAdmin = sessionUser?.username === "household"
+  const [newCurrency, setNewCurrency] = useState("")
+  const [currencyError, setCurrencyError] = useState<string | null>(null)
+  const [savingCurrency, setSavingCurrency] = useState(false)
+  const sortedCurrencies = useMemo(() => {
+    if (!settings) {
+      return [] as string[]
+    }
+    const entries = [...settings.knownCurrencies]
+    entries.sort((a, b) => {
+      if (a === settings.baseCurrency) return -1
+      if (b === settings.baseCurrency) return 1
+      return a.localeCompare(b, undefined, { sensitivity: "base" })
+    })
+    return entries
+  }, [settings])
 
   useEffect(() => {
     let cancelled = false
@@ -390,6 +405,50 @@ export default function SettingsPage() {
     }
   }
 
+  const handleAddCurrency = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!settings || savingCurrency) {
+      return
+    }
+
+    const code = newCurrency.trim().toUpperCase()
+    if (!/^[A-Z]{3}$/.test(code)) {
+      setCurrencyError(t("Enter a valid 3-letter currency code"))
+      return
+    }
+
+    if (settings.knownCurrencies.some((existing) => existing.toUpperCase() === code)) {
+      setCurrencyError(t("Currency already added"))
+      return
+    }
+
+    setSavingCurrency(true)
+    setCurrencyError(null)
+
+    try {
+      await updateSettings({ knownCurrencies: settings.knownCurrencies.concat(code) })
+      setNewCurrency("")
+    } finally {
+      setSavingCurrency(false)
+    }
+  }
+
+  const handleRemoveCurrency = async (currency: string) => {
+    if (!settings || savingCurrency || currency === settings.baseCurrency) {
+      return
+    }
+
+    setSavingCurrency(true)
+    setCurrencyError(null)
+
+    try {
+      const next = settings.knownCurrencies.filter((entry) => entry !== currency)
+      await updateSettings({ knownCurrencies: next })
+    } finally {
+      setSavingCurrency(false)
+    }
+  }
+
   const handlePasswordChange = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setPasswordLoading(true)
@@ -466,6 +525,87 @@ export default function SettingsPage() {
               }}
               aria-label={t("Toggle dark mode")}
             />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("Currencies")}</CardTitle>
+            <CardDescription>
+              {t("Manage additional currencies for multi-currency tracking.")}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <form
+              className="flex flex-col gap-4 md:flex-row md:items-end"
+              onSubmit={handleAddCurrency}
+            >
+              <div className="flex-1 space-y-2">
+                <Label htmlFor="new-currency">{t("Currency")}</Label>
+                <Input
+                  id="new-currency"
+                  value={newCurrency}
+                  maxLength={3}
+                  onChange={(event) => {
+                    setNewCurrency(event.target.value.toUpperCase())
+                    if (currencyError) {
+                      setCurrencyError(null)
+                    }
+                  }}
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  disabled={savingCurrency}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("Use a 3-letter currency code (e.g., USD)")}
+                </p>
+                {currencyError ? <p className="text-xs text-red-500">{currencyError}</p> : null}
+              </div>
+              <Button type="submit" disabled={savingCurrency}>
+                {savingCurrency ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {t("Add currency")}
+              </Button>
+            </form>
+            <div className="space-y-2">
+              <p className="text-sm font-medium">{t("Known currencies")}</p>
+              <div className="flex flex-wrap gap-2">
+                {sortedCurrencies.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    {t("No additional currencies yet. Add one above to start tracking conversions.")}
+                  </p>
+                ) : (
+                  sortedCurrencies.map((currency) => (
+                    <Badge
+                      key={currency}
+                      variant={currency === settings.baseCurrency ? "secondary" : "outline"}
+                      className="flex items-center gap-2"
+                    >
+                      <span>{currency}</span>
+                      {currency === settings.baseCurrency ? (
+                        <span className="text-[11px] text-muted-foreground">
+                          {t("Base currency")}
+                        </span>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5"
+                          onClick={() => handleRemoveCurrency(currency)}
+                          disabled={savingCurrency}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                          <span className="sr-only">
+                            {t("Remove {{currency}}", { values: { currency } })}
+                          </span>
+                        </Button>
+                      )}
+                    </Badge>
+                  ))
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">{t("Base currency cannot be removed.")}</p>
+            </div>
           </CardContent>
         </Card>
         <Card>
