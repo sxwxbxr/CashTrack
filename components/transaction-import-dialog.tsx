@@ -167,16 +167,6 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
     amount: mapping.amount,
   }), [mapping])
 
-  const includedCount = useMemo(() => drafts.filter((draft) => draft.include).length, [drafts])
-  const hasPendingDuplicates = useMemo(
-    () =>
-      drafts.some(
-        (draft) =>
-          draft.include && computeActiveDuplicates(draft).length > 0 && draft.decision === "pending",
-      ),
-    [computeActiveDuplicates, drafts],
-  )
-
   const computeActiveDuplicates = useCallback(
     (transaction: EditableTransaction) => {
       if (!transaction.duplicates.length) {
@@ -219,6 +209,16 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
       })
     },
     [],
+  )
+
+  const includedCount = useMemo(() => drafts.filter((draft) => draft.include).length, [drafts])
+  const hasPendingDuplicates = useMemo(
+    () =>
+      drafts.some(
+        (draft) =>
+          draft.include && computeActiveDuplicates(draft).length > 0 && draft.decision === "pending",
+      ),
+    [computeActiveDuplicates, drafts],
   )
 
   const updateDraft = useCallback(
@@ -640,19 +640,21 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[960px] max-h-[90vh] overflow-hidden">
-        <DialogHeader>
-          <DialogTitle>{t("Import Transactions")}</DialogTitle>
-          <DialogDescription>
-            {t("Upload a CSV or PDF statement from your bank or financial institution")}
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="max-w-[min(100%-2rem,80rem)] overflow-hidden p-0 sm:max-w-5xl">
+        <div className="flex h-full max-h-[90vh] flex-col">
+          <DialogHeader className="px-6 pt-6">
+            <DialogTitle>{t("Import Transactions")}</DialogTitle>
+            <DialogDescription>
+              {t("Upload a CSV or PDF statement from your bank or financial institution")}
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="space-y-4">
-          {renderError()}
+          <div className="flex-1 overflow-y-auto px-6 min-h-0">
+            <div className="space-y-4 pb-6">
+              {renderError()}
 
-          {step === "upload" && (
-            <div className="space-y-4">
+              {step === "upload" && (
+                <div className="space-y-4">
               <div className="grid w-full max-w-sm items-center gap-1.5">
                 <Label htmlFor="csv-file">{t("Statement File")}</Label>
                 <Input
@@ -798,7 +800,7 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
                 {isProcessing && <Loader2 className="h-4 w-4 animate-spin" />}
               </div>
               {drafts.length > 0 ? (
-                <ScrollArea className="max-h-[60vh] rounded-md border">
+                <ScrollArea className="max-h-[50vh] rounded-md border">
                   <div className="space-y-3 p-4">
                     {drafts.map((draft) => {
                       const activeDuplicates = computeActiveDuplicates(draft)
@@ -1165,37 +1167,38 @@ export function TransactionImportDialog({ open, onOpenChange, onComplete }: Tran
             </div>
           )}
         </div>
-
-        <DialogFooter>
-          {step === "success" ? (
-            <Button onClick={handleClose}>{t("Done")}</Button>
-          ) : (
-            <>
-              <Button variant="outline" onClick={handleClose} disabled={isProcessing}>
-                {t("Cancel")}
-              </Button>
-              <Button
-                onClick={handleNext}
-                disabled={
-                  isProcessing ||
-                  (step === "upload" && !selectedFile) ||
-                  (step === "preview" && hasPendingDuplicates)
-                }
-              >
-                {isProcessing ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {t("Processing")}
-                  </>
-                ) : step === "preview" ? (
-                  t("Import")
-                ) : (
-                  t("Next")
-                )}
-              </Button>
-            </>
-          )}
-        </DialogFooter>
+      </div>
+          <DialogFooter className="border-t bg-background px-6 py-4">
+            {step === "success" ? (
+              <Button onClick={handleClose}>{t("Done")}</Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={handleClose} disabled={isProcessing}>
+                  {t("Cancel")}
+                </Button>
+                <Button
+                  onClick={handleNext}
+                  disabled={
+                    isProcessing ||
+                    (step === "upload" && !selectedFile) ||
+                    (step === "preview" && hasPendingDuplicates)
+                  }
+                >
+                  {isProcessing ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      {t("Processing")}
+                    </>
+                  ) : step === "preview" ? (
+                    t("Import")
+                  ) : (
+                    t("Next")
+                  )}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+      </div>
       </DialogContent>
     </Dialog>
   )

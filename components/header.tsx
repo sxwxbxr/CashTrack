@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+import Link from "next/link"
 import { useEffect, useState } from "react"
 
 import type { SessionUser } from "@/lib/auth/session"
@@ -81,6 +82,10 @@ export function Header({ title, description, action }: HeaderProps) {
                   {t("Logout")}
                 </Button>
               </div>
+            ) : !loading ? (
+              <Button asChild variant="outline" size="sm">
+                <Link href="/login">{t("Sign in")}</Link>
+              </Button>
             ) : null}
             <LanguageSwitcher className="sm:hidden" />
             <LanguageSwitcher className="hidden sm:flex" />

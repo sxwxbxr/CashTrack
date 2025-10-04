@@ -1027,7 +1027,12 @@ export async function findPotentialDuplicateTransactions(
   return runWithDatabase(() => computeMatches())
 }
 
-export async function importTransactions(transactionsToImport: ParsedCsvTransaction[]) {
+export async function importTransactions(
+  transactionsToImport: ParsedCsvTransaction[],
+  options: { forceDuplicateSourceIds?: Set<string> } = {},
+) {
+  const forceDuplicateSourceIds = options.forceDuplicateSourceIds ?? new Set<string>()
+
   return runWithDatabase(() =>
     withTransaction(async (db) => {
       if (transactionsToImport.length === 0) {
@@ -1073,7 +1078,8 @@ export async function importTransactions(transactionsToImport: ParsedCsvTransact
           amountDetails.amount,
           amountDetails.account.name.toLowerCase(),
         ].join("|")
-        if (existingKeys.has(key)) {
+        const forceImport = forceDuplicateSourceIds.has(entry.sourceId)
+        if (existingKeys.has(key) && !forceImport) {
           continue
         }
         existingKeys.add(key)

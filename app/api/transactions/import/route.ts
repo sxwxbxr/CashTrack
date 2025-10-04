@@ -384,7 +384,18 @@ export async function POST(request: NextRequest) {
 
     const activityService = await import("@/lib/activity/service")
 
-    const result = await transactionService.importTransactions(filteredTransactions)
+    const forceDuplicateIds = new Set(
+      filteredTransactions
+        .filter((transaction) => {
+          const duplicates = duplicatesMap.get(transaction.sourceId)
+          return duplicates?.length && duplicateDecisions[transaction.sourceId] === "import"
+        })
+        .map((transaction) => transaction.sourceId),
+    )
+
+    const result = await transactionService.importTransactions(filteredTransactions, {
+      forceDuplicateSourceIds: forceDuplicateIds,
+    })
     const totalSkipped = result.skipped + droppedCount
 
     await activityService.recordUserAction(session.user, "transaction.import", "transaction", null, {
